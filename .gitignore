@@ -1,0 +1,13 @@
+# Environment
+.env
+
+# Build output
+/bin/
+/tmp/
+*.exe
+*.out
+
+# Go
+vendor/
+*.test
+coverage.out
