@@ -14,12 +14,13 @@ import (
 )
 
 var (
-	ErrCartEmpty         = errors.New("cart is empty")
-	ErrVariantInactive   = errors.New("a product in your cart is no longer available")
-	ErrInsufficientStock = errors.New("insufficient stock")
+	ErrCartEmpty          = errors.New("cart is empty")
+	ErrVariantInactive    = errors.New("a product in your cart is no longer available")
+	ErrInsufficientStock  = errors.New("insufficient stock")
 	ErrInvalidFulfillment = errors.New("invalid fulfillment type")
-	ErrNotCancellable    = errors.New("order can no longer be cancelled")
-	ErrInvalidTransition = errors.New("invalid status transition")
+	ErrNotCancellable     = errors.New("order can no longer be cancelled")
+	ErrInvalidTransition  = errors.New("invalid status transition")
+	ErrNoItems            = errors.New("order has no items")
 )
 
 type Service struct {
@@ -189,7 +190,7 @@ func (s *Service) Checkout(ctx context.Context, userID int64, req CheckoutReques
 		shipping := int64(0) // flat/no shipping fee for now
 		now := time.Now()
 		order := &Order{
-			UserID:          userID,
+			UserID:          &userID,
 			OrderNumber:     newOrderNumber(),
 			FulfillmentType: req.FulfillmentType,
 			Status:          StatusPending,
@@ -259,6 +260,99 @@ func (s *Service) CancelMyOrder(ctx context.Context, userID, orderID int64) (*Or
 }
 
 // --- admin actions ---
+
+// AdminCreateOrder builds a phone/walk-in order from explicit line items (rather
+// than a cart), reserving stock and snapshotting prices like customer checkout.
+func (s *Service) AdminCreateOrder(ctx context.Context, req AdminCreateOrderRequest) (*OrderDetail, error) {
+	if req.FulfillmentType != FulfillmentDelivery && req.FulfillmentType != FulfillmentPickup {
+		return nil, ErrInvalidFulfillment
+	}
+	if len(req.Items) == 0 {
+		return nil, ErrNoItems
+	}
+
+	var orderID int64
+	err := s.repo.InTx(ctx, func(tx *sqlx.Tx) error {
+		var subtotal int64
+		orderItems := make([]OrderItem, 0, len(req.Items))
+
+		for _, li := range req.Items {
+			if li.Quantity <= 0 {
+				return ErrNoItems
+			}
+			vs, err := s.repo.LockVariant(ctx, tx, li.ProductVariantID)
+			if err != nil {
+				return err // ErrVariantMissing bubbles up
+			}
+			if !vs.IsActive {
+				return ErrVariantInactive
+			}
+			if vs.StockQuantity < li.Quantity {
+				return fmt.Errorf("%w: %s", ErrInsufficientStock, vs.ProductName)
+			}
+			if err := s.repo.AdjustStock(ctx, tx, vs.ID, -li.Quantity); err != nil {
+				return err
+			}
+			priceCents, err := parseCents(vs.Price)
+			if err != nil {
+				return err
+			}
+			line := priceCents * int64(li.Quantity)
+			subtotal += line
+			variantID := vs.ID
+			sku := vs.SKU
+			orderItems = append(orderItems, OrderItem{
+				ProductVariantID: &variantID,
+				ProductName:      vs.ProductName,
+				VariantLabel:     vs.Label,
+				SKU:              &sku,
+				UnitPrice:        vs.Price,
+				Quantity:         li.Quantity,
+				LineTotal:        formatCents(line),
+			})
+		}
+
+		now := time.Now()
+		order := &Order{
+			UserID:          req.UserID,
+			OrderNumber:     newOrderNumber(),
+			FulfillmentType: req.FulfillmentType,
+			Status:          StatusPending,
+			PaymentStatus:   PaymentUnpaid,
+			Subtotal:        formatCents(subtotal),
+			ShippingFee:     formatCents(0),
+			Total:           formatCents(subtotal),
+			Note:            req.Note,
+			PlacedAt:        &now,
+		}
+		if name := strings.TrimSpace(req.CustomerName); name != "" {
+			order.CustomerName = &name
+		}
+		if req.FulfillmentType == FulfillmentPickup {
+			until := now.Add(PickupHold)
+			order.ReservedUntil = &until
+		} else {
+			applyShippingAddress(order, req.ShippingAddress)
+		}
+
+		id, err := s.repo.InsertOrder(ctx, tx, order)
+		if err != nil {
+			return err
+		}
+		orderID = id
+		for i := range orderItems {
+			orderItems[i].OrderID = id
+			if err := s.repo.InsertOrderItem(ctx, tx, &orderItems[i]); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return s.orderDetail(ctx, orderID)
+}
 
 func (s *Service) ListOrders(ctx context.Context, f OrderFilter) ([]Order, int, error) {
 	return s.repo.ListOrders(ctx, f)

@@ -11,9 +11,10 @@ import (
 // Car operational status (distinct from booking availability, which the
 // bookings module computes from date ranges).
 const (
-	CarStatusAvailable   = "available"
-	CarStatusMaintenance = "maintenance"
-	CarStatusInactive    = "inactive"
+	CarStatusAvailable    = "available"
+	CarStatusNotAvailable = "not_available"
+	CarStatusMaintenance  = "maintenance"
+	CarStatusInactive     = "inactive"
 )
 
 const (
@@ -30,7 +31,9 @@ type CarCategory struct {
 	Slug             string    `db:"slug" json:"slug"`
 	Description      *string   `db:"description" json:"description,omitempty"`
 	DefaultDailyRate string    `db:"default_daily_rate" json:"default_daily_rate"` // DECIMAL(12,2) as string
-	ImageURL         *string   `db:"image_url" json:"image_url,omitempty"`
+	IsCargoTransport bool      `db:"is_cargo_transport" json:"is_cargo_transport"`
+	CargoPerKmRate   string    `db:"cargo_per_km_rate" json:"cargo_per_km_rate"`
+	CargoMinimumRate string    `db:"cargo_minimum_rate" json:"cargo_minimum_rate"`
 	SortOrder        int       `db:"sort_order" json:"sort_order"`
 	IsActive         bool      `db:"is_active" json:"is_active"`
 	CreatedAt        time.Time `db:"created_at" json:"created_at"`
@@ -51,9 +54,14 @@ type Car struct {
 	Transmission      *string        `db:"transmission" json:"transmission,omitempty"`
 	FuelType          *string        `db:"fuel_type" json:"fuel_type,omitempty"`
 	DailyRate         string         `db:"daily_rate" json:"daily_rate"` // DECIMAL(12,2) as string
+	IsCargoTransport  bool           `db:"is_cargo_transport" json:"is_cargo_transport"`
+	CargoPerKmRate    string         `db:"cargo_per_km_rate" json:"cargo_per_km_rate"`
+	CargoMinimumRate  string         `db:"cargo_minimum_rate" json:"cargo_minimum_rate"`
 	Attributes        types.JSONText `db:"attributes" json:"attributes,omitempty"`
 	Description       *string        `db:"description" json:"description,omitempty"`
 	Status            string         `db:"status" json:"status"`
+	BaseStatus        string         `db:"base_status" json:"-"`
+	PrimaryImageURL   *string        `db:"primary_image_url" json:"primary_image_url,omitempty"`
 	CreatedAt         time.Time      `db:"created_at" json:"created_at"`
 	UpdatedAt         time.Time      `db:"updated_at" json:"updated_at"`
 }
@@ -74,6 +82,7 @@ type Driver struct {
 	Phone         string    `db:"phone" json:"phone"`
 	LicenseNumber string    `db:"license_number" json:"license_number"`
 	Status        string    `db:"status" json:"status"`
+	BaseStatus    string    `db:"base_status" json:"-"`
 	Notes         *string   `db:"notes" json:"notes,omitempty"`
 	CreatedAt     time.Time `db:"created_at" json:"created_at"`
 	UpdatedAt     time.Time `db:"updated_at" json:"updated_at"`
@@ -84,6 +93,36 @@ type CarDetail struct {
 	Car
 	Category *CarCategory `json:"category,omitempty"`
 	Images   []CarImage   `json:"images"`
+}
+
+type CarUsageStats struct {
+	RevenueTotal   string `db:"revenue_total" json:"revenue_total"`
+	TotalBookings  int    `db:"total_bookings" json:"total_bookings"`
+	FutureBookings int    `db:"future_bookings" json:"future_bookings"`
+	PaidBookings   int    `db:"paid_bookings" json:"paid_bookings"`
+}
+
+type CarBookingSummary struct {
+	ID              int64      `db:"id" json:"id"`
+	BookingNumber   string     `db:"booking_number" json:"booking_number"`
+	CustomerName    *string    `db:"customer_name" json:"customer_name,omitempty"`
+	DriverName      *string    `db:"driver_name" json:"driver_name,omitempty"`
+	Status          string     `db:"status" json:"status"`
+	PaymentStatus   string     `db:"payment_status" json:"payment_status"`
+	StartAt         time.Time  `db:"start_at" json:"start_at"`
+	EndAt           time.Time  `db:"end_at" json:"end_at"`
+	Days            int        `db:"days" json:"days"`
+	TotalPrice      string     `db:"total_price" json:"total_price"`
+	PickupLocation  string     `db:"pickup_location" json:"pickup_location"`
+	DropoffLocation *string    `db:"dropoff_location" json:"dropoff_location,omitempty"`
+	PaidAt          *time.Time `db:"paid_at" json:"paid_at,omitempty"`
+	CreatedAt       time.Time  `db:"created_at" json:"created_at"`
+}
+
+type CarOverview struct {
+	Car      *CarDetail          `json:"car"`
+	Stats    CarUsageStats       `json:"stats"`
+	Bookings []CarBookingSummary `json:"bookings"`
 }
 
 // CarFilter drives the car list query.
@@ -101,7 +140,9 @@ type CarCategoryRequest struct {
 	Name             string  `json:"name"`
 	Description      *string `json:"description"`
 	DefaultDailyRate string  `json:"default_daily_rate"`
-	ImageURL         *string `json:"image_url"`
+	IsCargoTransport *bool   `json:"is_cargo_transport"`
+	CargoPerKmRate   string  `json:"cargo_per_km_rate"`
+	CargoMinimumRate string  `json:"cargo_minimum_rate"`
 	SortOrder        int     `json:"sort_order"`
 	IsActive         *bool   `json:"is_active"`
 }

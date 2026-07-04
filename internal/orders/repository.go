@@ -11,10 +11,10 @@ import (
 )
 
 var (
-	ErrCartNotFound   = errors.New("cart not found")
+	ErrCartNotFound     = errors.New("cart not found")
 	ErrCartItemNotFound = errors.New("cart item not found")
-	ErrOrderNotFound  = errors.New("order not found")
-	ErrVariantMissing = errors.New("variant not found")
+	ErrOrderNotFound    = errors.New("order not found")
+	ErrVariantMissing   = errors.New("variant not found")
 )
 
 type Repository struct {
@@ -197,12 +197,12 @@ func (r *Repository) AdjustStock(ctx context.Context, tx *sqlx.Tx, variantID int
 
 func (r *Repository) InsertOrder(ctx context.Context, tx *sqlx.Tx, o *Order) (int64, error) {
 	res, err := tx.ExecContext(ctx,
-		`INSERT INTO orders (user_id, order_number, fulfillment_type, status, payment_status,
+		`INSERT INTO orders (user_id, customer_name, order_number, fulfillment_type, status, payment_status,
 		 subtotal, shipping_fee, total, reserved_until,
 		 ship_recipient_name, ship_phone, ship_line1, ship_line2, ship_city, ship_region, ship_country, ship_postal_code,
 		 note, placed_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		o.UserID, o.OrderNumber, o.FulfillmentType, o.Status, o.PaymentStatus,
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		o.UserID, o.CustomerName, o.OrderNumber, o.FulfillmentType, o.Status, o.PaymentStatus,
 		o.Subtotal, o.ShippingFee, o.Total, o.ReservedUntil,
 		o.ShipRecipientName, o.ShipPhone, o.ShipLine1, o.ShipLine2, o.ShipCity, o.ShipRegion, o.ShipCountry, o.ShipPostalCode,
 		o.Note, o.PlacedAt)
@@ -245,7 +245,7 @@ func (r *Repository) SetOrderStatusTx(ctx context.Context, tx *sqlx.Tx, orderID 
 
 // --- order reads / simple writes ---
 
-const orderCols = `id, user_id, order_number, fulfillment_type, status, payment_status,
+const orderCols = `id, user_id, customer_name, order_number, fulfillment_type, status, payment_status,
 	subtotal, shipping_fee, total, reserved_until,
 	ship_recipient_name, ship_phone, ship_line1, ship_line2, ship_city, ship_region, ship_country, ship_postal_code,
 	note, placed_at, paid_at, created_at, updated_at`

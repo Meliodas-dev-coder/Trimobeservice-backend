@@ -51,6 +51,13 @@ func (h *Handler) GetProductPublic(w http.ResponseWriter, r *http.Request) {
 	httpx.JSON(w, http.StatusOK, httpx.Envelope{"product": detail})
 }
 
+// ===================== admin: product templates =====================
+
+// ListTemplates returns the product-type registry the admin form renders from.
+func (h *Handler) ListTemplates(w http.ResponseWriter, _ *http.Request) {
+	httpx.JSON(w, http.StatusOK, httpx.Envelope{"templates": Templates()})
+}
+
 // ===================== admin: categories =====================
 
 func (h *Handler) ListCategoriesAdmin(w http.ResponseWriter, r *http.Request) {
@@ -321,6 +328,23 @@ func (h *Handler) CreateImage(w http.ResponseWriter, r *http.Request) {
 	httpx.JSON(w, http.StatusCreated, httpx.Envelope{"image": im})
 }
 
+func (h *Handler) UpdateImage(w http.ResponseWriter, r *http.Request) {
+	id, ok := idParam(w, r)
+	if !ok {
+		return
+	}
+	var req ImageUpdateRequest
+	if !decode(w, r, &req) {
+		return
+	}
+	im, err := h.svc.UpdateImage(r.Context(), id, req)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	httpx.JSON(w, http.StatusOK, httpx.Envelope{"image": im})
+}
+
 func (h *Handler) DeleteImage(w http.ResponseWriter, r *http.Request) {
 	id, ok := idParam(w, r)
 	if !ok {
@@ -400,6 +424,11 @@ func parsePage(r *http.Request) (limit, page int) {
 }
 
 func writeError(w http.ResponseWriter, err error) {
+	var pe *ProblemError
+	if errors.As(err, &pe) {
+		httpx.ValidationError(w, pe.Problems)
+		return
+	}
 	switch {
 	case errors.Is(err, ErrCategoryNotFound),
 		errors.Is(err, ErrBrandNotFound),

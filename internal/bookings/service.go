@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"math"
 	"strings"
 	"time"
 
@@ -25,6 +24,8 @@ var (
 	ErrNotAssignable     = errors.New("driver can only be assigned to a confirmed booking")
 	ErrInvalidTransition = errors.New("invalid status transition")
 	ErrNotCancellable    = errors.New("booking can no longer be cancelled")
+	ErrDistanceRequired  = errors.New("distance_km and dropoff_location are required for cargo bookings")
+	ErrInvalidDistance   = errors.New("distance_km must be a positive decimal distance")
 )
 
 type Service struct {
@@ -59,11 +60,26 @@ func (s *Service) CheckAvailability(ctx context.Context, carID int64, start, end
 // is available and free, snapshots the rate, and inserts a confirmed booking —
 // all in one transaction. The DB trigger is the backstop against overlaps.
 func (s *Service) Create(ctx context.Context, userID int64, req CreateBookingRequest) (*BookingDetail, error) {
+	uid := userID
+	return s.create(ctx, &uid, "", nil, req)
+}
+
+func (s *Service) CreateAdmin(ctx context.Context, req AdminCreateBookingRequest) (*BookingDetail, error) {
+	return s.create(ctx, req.UserID, req.CustomerName, req.DriverID, CreateBookingRequest{
+		CarID:           req.CarID,
+		StartAt:         req.StartAt,
+		EndAt:           req.EndAt,
+		PickupLocation:  req.PickupLocation,
+		DropoffLocation: req.DropoffLocation,
+		ContactPhone:    req.ContactPhone,
+		DistanceKm:      req.DistanceKm,
+		Note:            req.Note,
+	})
+}
+
+func (s *Service) create(ctx context.Context, userID *int64, customerName string, driverID *int64, req CreateBookingRequest) (*BookingDetail, error) {
 	if !req.EndAt.After(req.StartAt) {
 		return nil, ErrInvalidDates
-	}
-	if req.StartAt.Before(time.Now()) {
-		return nil, ErrPastStart
 	}
 	days := billableDays(req.StartAt, req.EndAt)
 
@@ -76,6 +92,9 @@ func (s *Service) Create(ctx context.Context, userID int64, req CreateBookingReq
 		if car.Status != carStatusAvailable {
 			return ErrCarUnavailable
 		}
+		if req.StartAt.Before(time.Now()) && !isAllowedTodayCargoWindow(car, req.StartAt, req.EndAt) {
+			return ErrPastStart
+		}
 		overlap, err := s.repo.HasCarOverlap(ctx, tx, car.ID, 0, req.StartAt, req.EndAt)
 		if err != nil {
 			return err
@@ -87,24 +106,74 @@ func (s *Service) Create(ctx context.Context, userID int64, req CreateBookingReq
 		if err != nil {
 			return err
 		}
+		name := strings.TrimSpace(customerName)
+		var customerNameSnapshot *string
+		if name != "" {
+			customerNameSnapshot = &name
+		}
+		if userID != nil {
+			accountName, err := s.repo.CustomerName(ctx, tx, *userID)
+			if err != nil {
+				return err
+			}
+			if customerNameSnapshot == nil {
+				customerNameSnapshot = accountName
+			}
+		}
+		bookingDays := days
 		rateCents, err := parseCents(car.DailyRate)
 		if err != nil {
 			return err
 		}
-		total := rateCents * int64(days) // fees are 0 for now
+		pricingModel := PricingDaily
+		total := rateCents * int64(bookingDays) // fees are 0 for now
+		var distanceKm *string
+		var cargoPerKmRate *string
+		var cargoMinimumRate *string
+		if car.IsCargoTransport {
+			if req.DropoffLocation == nil || strings.TrimSpace(*req.DropoffLocation) == "" || req.DistanceKm == nil {
+				return ErrDistanceRequired
+			}
+			distanceHundredths, err := parseDistanceHundredths(*req.DistanceKm)
+			if err != nil || distanceHundredths <= 0 {
+				return ErrInvalidDistance
+			}
+			perKmCents, err := parseCents(car.CargoPerKmRate)
+			if err != nil {
+				return err
+			}
+			minimumCents, err := parseCents(car.CargoMinimumRate)
+			if err != nil {
+				return err
+			}
+			pricingModel = PricingCargoDistance
+			bookingDays = 1
+			total = cargoTotalCents(distanceHundredths, perKmCents, minimumCents)
+			distance := formatHundredths(distanceHundredths)
+			distanceKm = &distance
+			perKmRate := car.CargoPerKmRate
+			minimumRate := car.CargoMinimumRate
+			cargoPerKmRate = &perKmRate
+			cargoMinimumRate = &minimumRate
+		}
 
 		b := &Booking{
 			UserID:            userID,
+			CustomerName:      customerNameSnapshot,
 			CarID:             car.ID,
 			BookingNumber:     newBookingNumber(),
 			Status:            StatusConfirmed,
 			PaymentStatus:     PaymentUnpaid,
 			StartAt:           req.StartAt,
 			EndAt:             req.EndAt,
-			Days:              days,
+			Days:              bookingDays,
 			DailyRateSnapshot: car.DailyRate,
 			Fees:              "0.00",
 			TotalPrice:        formatCents(total),
+			PricingModel:      pricingModel,
+			DistanceKm:        distanceKm,
+			CargoPerKmRate:    cargoPerKmRate,
+			CargoMinimumRate:  cargoMinimumRate,
 			CarName:           car.Name,
 			CarCategory:       catName,
 			PickupLocation:    strings.TrimSpace(req.PickupLocation),
@@ -117,6 +186,25 @@ func (s *Service) Create(ctx context.Context, userID int64, req CreateBookingReq
 			return err
 		}
 		bookingID = id
+		if driverID != nil {
+			d, err := s.repo.GetDriver(ctx, tx, *driverID)
+			if err != nil {
+				return err
+			}
+			if d.Status == "inactive" {
+				return ErrDriverInactive
+			}
+			busy, err := s.repo.HasDriverOverlap(ctx, tx, *driverID, bookingID, req.StartAt, req.EndAt)
+			if err != nil {
+				return err
+			}
+			if busy {
+				return ErrDriverBusy
+			}
+			if err := s.repo.AssignDriverTx(ctx, tx, bookingID, *driverID); err != nil {
+				return err
+			}
+		}
 		return nil
 	})
 	if err != nil {
@@ -246,13 +334,31 @@ func canTransition(from, to string) bool {
 	return false
 }
 
-// billableDays is the number of 24h periods (rounded up), at least 1.
+// billableDays counts inclusive calendar days: pickup day is day 1, and the
+// return day is billed too even when the elapsed duration is under 24 hours.
 func billableDays(start, end time.Time) int {
-	days := int(math.Ceil(end.Sub(start).Hours() / 24))
+	startDay := dateOnly(start)
+	endDay := dateOnly(end.In(start.Location()))
+	days := int(endDay.Sub(startDay).Hours()/24) + 1
 	if days < 1 {
 		days = 1
 	}
 	return days
+}
+
+func dateOnly(t time.Time) time.Time {
+	return time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, t.Location())
+}
+
+func isAllowedTodayCargoWindow(car *carRow, start, end time.Time) bool {
+	now := time.Now()
+	return car.IsCargoTransport && sameLocalDay(start, now) && end.After(now)
+}
+
+func sameLocalDay(a, b time.Time) bool {
+	aa := a.In(time.Local)
+	bb := b.In(time.Local)
+	return aa.Year() == bb.Year() && aa.YearDay() == bb.YearDay()
 }
 
 func newBookingNumber() string {

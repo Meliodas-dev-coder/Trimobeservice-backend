@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+
+	"github.com/jmoiron/sqlx/types"
 )
 
 var (
@@ -44,10 +46,15 @@ func (s *Service) CreateCategory(ctx context.Context, req CategoryRequest) (*Cat
 	if err != nil {
 		return nil, err
 	}
+	templateKey, err := templateKeyOrProblem(req.TemplateKey)
+	if err != nil {
+		return nil, err
+	}
 	c := &Category{
 		ParentID:    req.ParentID,
 		Name:        strings.TrimSpace(req.Name),
 		Slug:        slug,
+		TemplateKey: templateKey,
 		Description: req.Description,
 		ImageURL:    req.ImageURL,
 		SortOrder:   req.SortOrder,
@@ -77,9 +84,14 @@ func (s *Service) UpdateCategory(ctx context.Context, id int64, req CategoryRequ
 	if err != nil {
 		return nil, err
 	}
+	templateKey, err := templateKeyOrProblem(req.TemplateKey)
+	if err != nil {
+		return nil, err
+	}
 	c.ParentID = req.ParentID
 	c.Name = strings.TrimSpace(req.Name)
 	c.Slug = slug
+	c.TemplateKey = templateKey
 	c.Description = req.Description
 	c.ImageURL = req.ImageURL
 	c.SortOrder = req.SortOrder
@@ -178,16 +190,24 @@ func (s *Service) CreateProduct(ctx context.Context, req ProductRequest) (*Produ
 	if err != nil {
 		return nil, err
 	}
+	attrs, err := s.normalizeProductAttributes(ctx, req.CategoryID, req.Attributes)
+	if err != nil {
+		return nil, err
+	}
 	p := &Product{
 		CategoryID:  req.CategoryID,
 		BrandID:     req.BrandID,
 		Name:        strings.TrimSpace(req.Name),
 		Slug:        slug,
 		Description: req.Description,
+		Attributes:  attrs,
 		IsActive:    derefBool(req.IsActive, true),
 	}
 	id, err := s.repo.CreateProduct(ctx, p)
 	if err != nil {
+		return nil, err
+	}
+	if err := s.rebuildFacets(ctx, id); err != nil {
 		return nil, err
 	}
 	return s.GetProductByID(ctx, id)
@@ -205,15 +225,23 @@ func (s *Service) UpdateProduct(ctx context.Context, id int64, req ProductReques
 	if err != nil {
 		return nil, err
 	}
+	attrs, err := s.normalizeProductAttributes(ctx, req.CategoryID, req.Attributes)
+	if err != nil {
+		return nil, err
+	}
 	p.CategoryID = req.CategoryID
 	p.BrandID = req.BrandID
 	p.Name = strings.TrimSpace(req.Name)
 	p.Slug = slug
 	p.Description = req.Description
+	p.Attributes = attrs
 	if req.IsActive != nil {
 		p.IsActive = *req.IsActive
 	}
 	if err := s.repo.UpdateProduct(ctx, p); err != nil {
+		return nil, err
+	}
+	if err := s.rebuildFacets(ctx, id); err != nil {
 		return nil, err
 	}
 	return s.GetProductByID(ctx, id)
@@ -226,7 +254,12 @@ func (s *Service) DeleteProduct(ctx context.Context, id int64) error {
 // --- variants ---
 
 func (s *Service) CreateVariant(ctx context.Context, productID int64, req VariantRequest) (*Variant, error) {
-	if _, err := s.repo.GetProductByID(ctx, productID); err != nil {
+	prod, err := s.repo.GetProductByID(ctx, productID)
+	if err != nil {
+		return nil, err
+	}
+	attrs, err := s.normalizeVariantAttributes(ctx, prod.CategoryID, req.Attributes)
+	if err != nil {
 		return nil, err
 	}
 	sku := strings.TrimSpace(req.SKU)
@@ -243,7 +276,7 @@ func (s *Service) CreateVariant(ctx context.Context, productID int64, req Varian
 		Label:         req.Label,
 		Color:         req.Color,
 		Storage:       req.Storage,
-		Attributes:    req.Attributes,
+		Attributes:    attrs,
 		Price:         req.Price,
 		StockQuantity: req.StockQuantity,
 		IsActive:      derefBool(req.IsActive, true),
@@ -252,11 +285,22 @@ func (s *Service) CreateVariant(ctx context.Context, productID int64, req Varian
 	if err != nil {
 		return nil, err
 	}
+	if err := s.rebuildFacets(ctx, productID); err != nil {
+		return nil, err
+	}
 	return s.repo.GetVariantByID(ctx, id)
 }
 
 func (s *Service) UpdateVariant(ctx context.Context, id int64, req VariantRequest) (*Variant, error) {
 	v, err := s.repo.GetVariantByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	prod, err := s.repo.GetProductByID(ctx, v.ProductID)
+	if err != nil {
+		return nil, err
+	}
+	attrs, err := s.normalizeVariantAttributes(ctx, prod.CategoryID, req.Attributes)
 	if err != nil {
 		return nil, err
 	}
@@ -274,7 +318,7 @@ func (s *Service) UpdateVariant(ctx context.Context, id int64, req VariantReques
 	v.Label = req.Label
 	v.Color = req.Color
 	v.Storage = req.Storage
-	v.Attributes = req.Attributes
+	v.Attributes = attrs
 	v.Price = req.Price
 	v.StockQuantity = req.StockQuantity
 	if req.IsActive != nil {
@@ -283,11 +327,21 @@ func (s *Service) UpdateVariant(ctx context.Context, id int64, req VariantReques
 	if err := s.repo.UpdateVariant(ctx, v); err != nil {
 		return nil, err
 	}
+	if err := s.rebuildFacets(ctx, v.ProductID); err != nil {
+		return nil, err
+	}
 	return s.repo.GetVariantByID(ctx, id)
 }
 
 func (s *Service) DeleteVariant(ctx context.Context, id int64) error {
-	return s.repo.DeleteVariant(ctx, id)
+	v, err := s.repo.GetVariantByID(ctx, id)
+	if err != nil {
+		return err
+	}
+	if err := s.repo.DeleteVariant(ctx, id); err != nil {
+		return err
+	}
+	return s.rebuildFacets(ctx, v.ProductID)
 }
 
 // --- images ---
@@ -318,6 +372,34 @@ func (s *Service) CreateImage(ctx context.Context, productID int64, req ImageReq
 		return nil, err
 	}
 	im.ID = id
+	// A product-level primary image is the cover; keep it unique.
+	if im.IsPrimary && im.VariantID == nil {
+		if err := s.repo.ClearProductCover(ctx, im.ProductID, id); err != nil {
+			return nil, err
+		}
+	}
+	return im, nil
+}
+
+func (s *Service) UpdateImage(ctx context.Context, id int64, req ImageUpdateRequest) (*Image, error) {
+	im, err := s.repo.GetImageByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if req.AltText != nil {
+		im.AltText = req.AltText
+	}
+	if req.IsPrimary != nil {
+		im.IsPrimary = *req.IsPrimary
+	}
+	if err := s.repo.UpdateImage(ctx, im); err != nil {
+		return nil, err
+	}
+	if im.IsPrimary && im.VariantID == nil {
+		if err := s.repo.ClearProductCover(ctx, im.ProductID, im.ID); err != nil {
+			return nil, err
+		}
+	}
 	return im, nil
 }
 
@@ -398,6 +480,93 @@ func (s *Service) mustCategoryExist(ctx context.Context, id int64) error {
 		return ErrInvalidCategory
 	}
 	return nil
+}
+
+// --- attributes & facets ---
+
+// templateForCategory resolves the product template a category points at. An
+// unknown/legacy key yields the zero template (no fields), which cleanly drops
+// any submitted attributes.
+func (s *Service) templateForCategory(ctx context.Context, categoryID int64) (ProductTemplate, error) {
+	cat, err := s.repo.GetCategoryByID(ctx, categoryID)
+	if err != nil {
+		return ProductTemplate{}, err
+	}
+	tmpl, _ := TemplateByKey(cat.TemplateKey)
+	return tmpl, nil
+}
+
+func (s *Service) normalizeProductAttributes(ctx context.Context, categoryID int64, raw types.JSONText) (types.JSONText, error) {
+	tmpl, err := s.templateForCategory(ctx, categoryID)
+	if err != nil {
+		return nil, err
+	}
+	cleaned, problems := normalizeAttributes(tmpl.ProductFields, raw)
+	if len(problems) > 0 {
+		return nil, &ProblemError{Problems: problems}
+	}
+	return cleaned, nil
+}
+
+func (s *Service) normalizeVariantAttributes(ctx context.Context, categoryID int64, raw types.JSONText) (types.JSONText, error) {
+	tmpl, err := s.templateForCategory(ctx, categoryID)
+	if err != nil {
+		return nil, err
+	}
+	cleaned, problems := normalizeAttributes(tmpl.VariantAxes, raw)
+	if len(problems) > 0 {
+		return nil, &ProblemError{Problems: problems}
+	}
+	return cleaned, nil
+}
+
+// rebuildFacets rewrites a product's product_facets rows from its product-level
+// filterable specs plus the axis values of its active variants (deduplicated).
+func (s *Service) rebuildFacets(ctx context.Context, productID int64) error {
+	p, err := s.repo.GetProductByID(ctx, productID)
+	if err != nil {
+		return err
+	}
+	tmpl, err := s.templateForCategory(ctx, p.CategoryID)
+	if err != nil {
+		return err
+	}
+	variants, err := s.repo.ListVariantsByProduct(ctx, productID)
+	if err != nil {
+		return err
+	}
+
+	seen := map[string]bool{}
+	var facets []Facet
+	add := func(rows []Facet) {
+		for _, f := range rows {
+			key := f.Key + "\x00" + f.Value
+			if !seen[key] {
+				seen[key] = true
+				facets = append(facets, f)
+			}
+		}
+	}
+	add(templateFacets(tmpl.ProductFields, p.Attributes))
+	for _, v := range variants {
+		if v.IsActive {
+			add(templateFacets(tmpl.VariantAxes, v.Attributes))
+		}
+	}
+	return s.repo.ReplaceProductFacets(ctx, productID, facets)
+}
+
+// templateKeyOrProblem validates a category's requested product type, defaulting
+// to generic when blank and rejecting unknown keys.
+func templateKeyOrProblem(key string) (string, error) {
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return DefaultTemplateKey, nil
+	}
+	if !IsValidTemplateKey(key) {
+		return "", &ProblemError{Problems: map[string]string{"template_key": "unknown product type"}}
+	}
+	return key, nil
 }
 
 // uniqueSlug builds a slug from name and appends -2, -3, … until it is free.

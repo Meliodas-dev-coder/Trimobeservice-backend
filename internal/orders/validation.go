@@ -1,6 +1,9 @@
 package orders
 
-import "strings"
+import (
+	"fmt"
+	"strings"
+)
 
 func validateAddCartItem(req AddCartItemRequest) map[string]string {
 	p := map[string]string{}
@@ -23,12 +26,37 @@ func validateUpdateCartItem(req UpdateCartItemRequest) map[string]string {
 
 func validateCheckout(req CheckoutRequest) map[string]string {
 	p := map[string]string{}
-	switch req.FulfillmentType {
+	validateFulfillment(p, req.FulfillmentType, req.ShippingAddress)
+	return p
+}
+
+func validateAdminCreateOrder(req AdminCreateOrderRequest) map[string]string {
+	p := map[string]string{}
+	if strings.TrimSpace(req.CustomerName) == "" {
+		p["customer_name"] = "is required"
+	}
+	if len(req.Items) == 0 {
+		p["items"] = "add at least one item"
+	}
+	for i, li := range req.Items {
+		if li.ProductVariantID <= 0 {
+			p[fmt.Sprintf("items.%d.product_variant_id", i)] = "is required"
+		}
+		if li.Quantity <= 0 {
+			p[fmt.Sprintf("items.%d.quantity", i)] = "must be at least 1"
+		}
+	}
+	validateFulfillment(p, req.FulfillmentType, req.ShippingAddress)
+	return p
+}
+
+// validateFulfillment applies the shared delivery/pickup + address rules.
+func validateFulfillment(p map[string]string, fulfillment string, a *ShippingAddress) {
+	switch fulfillment {
 	case FulfillmentDelivery:
-		a := req.ShippingAddress
 		if a == nil {
 			p["shipping_address"] = "is required for delivery"
-			break
+			return
 		}
 		if strings.TrimSpace(a.RecipientName) == "" {
 			p["shipping_address.recipient_name"] = "is required"
@@ -50,5 +78,4 @@ func validateCheckout(req CheckoutRequest) map[string]string {
 	default:
 		p["fulfillment_type"] = "must be 'delivery' or 'pickup'"
 	}
-	return p
 }

@@ -207,6 +207,23 @@ func (h *Handler) ListOrdersAdmin(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (h *Handler) CreateOrderAdmin(w http.ResponseWriter, r *http.Request) {
+	var req AdminCreateOrderRequest
+	if !decode(w, r, &req) {
+		return
+	}
+	if p := validateAdminCreateOrder(req); len(p) > 0 {
+		httpx.ValidationError(w, p)
+		return
+	}
+	order, err := h.svc.AdminCreateOrder(r.Context(), req)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	httpx.JSON(w, http.StatusCreated, httpx.Envelope{"order": order})
+}
+
 func (h *Handler) GetOrderAdmin(w http.ResponseWriter, r *http.Request) {
 	id, ok := idParam(w, r)
 	if !ok {
@@ -296,7 +313,7 @@ func writeError(w http.ResponseWriter, err error) {
 		errors.Is(err, ErrNotCancellable),
 		errors.Is(err, ErrInvalidTransition):
 		httpx.Error(w, http.StatusConflict, err.Error())
-	case errors.Is(err, ErrCartEmpty), errors.Is(err, ErrInvalidFulfillment):
+	case errors.Is(err, ErrCartEmpty), errors.Is(err, ErrInvalidFulfillment), errors.Is(err, ErrNoItems):
 		httpx.Error(w, http.StatusUnprocessableEntity, err.Error())
 	default:
 		httpx.Error(w, http.StatusInternalServerError, "internal server error")

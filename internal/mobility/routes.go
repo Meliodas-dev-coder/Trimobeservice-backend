@@ -24,6 +24,7 @@ func RegisterRoutes(r chi.Router, h *Handler, adminOnly func(http.Handler) http.
 		r.Delete("/admin/car-categories/{id}", h.DeleteCategory)
 
 		r.Get("/admin/cars", h.ListCarsAdmin)
+		r.Get("/admin/cars/{id}/overview", h.GetCarOverviewAdmin)
 		r.Get("/admin/cars/{id}", h.GetCarAdmin)
 		r.Post("/admin/cars", h.CreateCar)
 		r.Put("/admin/cars/{id}", h.UpdateCar)

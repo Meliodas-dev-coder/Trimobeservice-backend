@@ -77,14 +77,14 @@ func Load() (*Config, error) {
 			Host:            getStr("DB_HOST", "127.0.0.1"),
 			Port:            getStr("DB_PORT", "3306"),
 			User:            getStr("DB_USER", "root"),
-			Password:        getStr("DB_PASSWORD", "123456789"),
+			Password:        getStr("DB_PASSWORD", ""),
 			Name:            getStr("DB_NAME", "trimobase"),
 			MaxOpenConns:    getInt("DB_MAX_OPEN_CONNS", 25),
 			MaxIdleConns:    getInt("DB_MAX_IDLE_CONNS", 25),
 			ConnMaxLifetime: getDur("DB_CONN_MAX_LIFETIME", 5*time.Minute),
 		},
 		JWT: JWTConfig{
-			Secret:     getStr("JWT_SECRET", "321sd32f13d1f3sd1f2s1f2s31df23s1f1dss"),
+			Secret:     getStr("JWT_SECRET", ""),
 			Issuer:     getStr("JWT_ISSUER", "trimo"),
 			AccessTTL:  getDur("JWT_ACCESS_TTL", 15*time.Minute),
 			RefreshTTL: getDur("JWT_REFRESH_TTL", 720*time.Hour), // 30 days

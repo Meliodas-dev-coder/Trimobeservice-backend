@@ -122,6 +122,23 @@ func (h *Handler) GetCarAdmin(w http.ResponseWriter, r *http.Request) {
 	httpx.JSON(w, http.StatusOK, httpx.Envelope{"car": detail})
 }
 
+func (h *Handler) GetCarOverviewAdmin(w http.ResponseWriter, r *http.Request) {
+	id, ok := idParam(w, r)
+	if !ok {
+		return
+	}
+	overview, err := h.svc.GetCarOverview(r.Context(), id)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	httpx.JSON(w, http.StatusOK, httpx.Envelope{
+		"car":      overview.Car,
+		"stats":    overview.Stats,
+		"bookings": overview.Bookings,
+	})
+}
+
 func (h *Handler) CreateCar(w http.ResponseWriter, r *http.Request) {
 	var req CarRequest
 	if !decode(w, r, &req) {

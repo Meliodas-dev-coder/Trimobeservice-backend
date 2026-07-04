@@ -2,6 +2,7 @@ package mobility
 
 import (
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -9,9 +10,10 @@ var priceRe = regexp.MustCompile(`^\d{1,10}(\.\d{1,2})?$`)
 
 var validTransmissions = map[string]bool{"manual": true, "automatic": true}
 var validCarStatuses = map[string]bool{
-	CarStatusAvailable:   true,
-	CarStatusMaintenance: true,
-	CarStatusInactive:    true,
+	CarStatusAvailable:    true,
+	CarStatusNotAvailable: true,
+	CarStatusMaintenance:  true,
+	CarStatusInactive:     true,
 }
 var validDriverStatuses = map[string]bool{
 	DriverStatusAvailable: true,
@@ -27,7 +29,30 @@ func validateCarCategory(req CarCategoryRequest) map[string]string {
 	if r := strings.TrimSpace(req.DefaultDailyRate); r != "" && !priceRe.MatchString(r) {
 		p["default_daily_rate"] = "must be a decimal amount, e.g. 120.00"
 	}
+	if r := strings.TrimSpace(req.CargoPerKmRate); r != "" && !priceRe.MatchString(r) {
+		p["cargo_per_km_rate"] = "must be a decimal amount, e.g. 120.00"
+	}
+	if r := strings.TrimSpace(req.CargoMinimumRate); r != "" && !priceRe.MatchString(r) {
+		p["cargo_minimum_rate"] = "must be a decimal amount, e.g. 120.00"
+	}
+	if derefBool(req.IsCargoTransport, false) {
+		if strings.TrimSpace(req.CargoPerKmRate) == "" {
+			p["cargo_per_km_rate"] = "is required for cargo transport"
+		} else if !positiveAmount(req.CargoPerKmRate) {
+			p["cargo_per_km_rate"] = "must be greater than zero"
+		}
+		if strings.TrimSpace(req.CargoMinimumRate) == "" {
+			p["cargo_minimum_rate"] = "is required for cargo transport"
+		} else if !positiveAmount(req.CargoMinimumRate) {
+			p["cargo_minimum_rate"] = "must be greater than zero"
+		}
+	}
 	return p
+}
+
+func positiveAmount(value string) bool {
+	n, err := strconv.ParseFloat(strings.TrimSpace(value), 64)
+	return err == nil && n > 0
 }
 
 func validateCar(req CarRequest) map[string]string {
@@ -45,7 +70,7 @@ func validateCar(req CarRequest) map[string]string {
 		p["transmission"] = "must be 'manual' or 'automatic'"
 	}
 	if req.Status != nil && !validCarStatuses[*req.Status] {
-		p["status"] = "must be one of available, maintenance, inactive"
+		p["status"] = "must be one of available, not_available, maintenance, inactive"
 	}
 	if req.Year != nil && (*req.Year < 1900 || *req.Year > 2100) {
 		p["year"] = "is out of range"

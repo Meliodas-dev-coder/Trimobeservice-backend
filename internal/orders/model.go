@@ -71,29 +71,30 @@ type CartView struct {
 }
 
 type Order struct {
-	ID              int64      `db:"id" json:"id"`
-	UserID          int64      `db:"user_id" json:"user_id"`
-	OrderNumber     string     `db:"order_number" json:"order_number"`
-	FulfillmentType string     `db:"fulfillment_type" json:"fulfillment_type"`
-	Status          string     `db:"status" json:"status"`
-	PaymentStatus   string     `db:"payment_status" json:"payment_status"`
-	Subtotal        string     `db:"subtotal" json:"subtotal"`
-	ShippingFee     string     `db:"shipping_fee" json:"shipping_fee"`
-	Total           string     `db:"total" json:"total"`
-	ReservedUntil   *time.Time `db:"reserved_until" json:"reserved_until,omitempty"`
-	ShipRecipientName *string  `db:"ship_recipient_name" json:"ship_recipient_name,omitempty"`
-	ShipPhone       *string    `db:"ship_phone" json:"ship_phone,omitempty"`
-	ShipLine1       *string    `db:"ship_line1" json:"ship_line1,omitempty"`
-	ShipLine2       *string    `db:"ship_line2" json:"ship_line2,omitempty"`
-	ShipCity        *string    `db:"ship_city" json:"ship_city,omitempty"`
-	ShipRegion      *string    `db:"ship_region" json:"ship_region,omitempty"`
-	ShipCountry     *string    `db:"ship_country" json:"ship_country,omitempty"`
-	ShipPostalCode  *string    `db:"ship_postal_code" json:"ship_postal_code,omitempty"`
-	Note            *string    `db:"note" json:"note,omitempty"`
-	PlacedAt        *time.Time `db:"placed_at" json:"placed_at,omitempty"`
-	PaidAt          *time.Time `db:"paid_at" json:"paid_at,omitempty"`
-	CreatedAt       time.Time  `db:"created_at" json:"created_at"`
-	UpdatedAt       time.Time  `db:"updated_at" json:"updated_at"`
+	ID                int64      `db:"id" json:"id"`
+	UserID            *int64     `db:"user_id" json:"user_id,omitempty"`             // nil for admin walk-in orders
+	CustomerName      *string    `db:"customer_name" json:"customer_name,omitempty"` // set for walk-in orders
+	OrderNumber       string     `db:"order_number" json:"order_number"`
+	FulfillmentType   string     `db:"fulfillment_type" json:"fulfillment_type"`
+	Status            string     `db:"status" json:"status"`
+	PaymentStatus     string     `db:"payment_status" json:"payment_status"`
+	Subtotal          string     `db:"subtotal" json:"subtotal"`
+	ShippingFee       string     `db:"shipping_fee" json:"shipping_fee"`
+	Total             string     `db:"total" json:"total"`
+	ReservedUntil     *time.Time `db:"reserved_until" json:"reserved_until,omitempty"`
+	ShipRecipientName *string    `db:"ship_recipient_name" json:"ship_recipient_name,omitempty"`
+	ShipPhone         *string    `db:"ship_phone" json:"ship_phone,omitempty"`
+	ShipLine1         *string    `db:"ship_line1" json:"ship_line1,omitempty"`
+	ShipLine2         *string    `db:"ship_line2" json:"ship_line2,omitempty"`
+	ShipCity          *string    `db:"ship_city" json:"ship_city,omitempty"`
+	ShipRegion        *string    `db:"ship_region" json:"ship_region,omitempty"`
+	ShipCountry       *string    `db:"ship_country" json:"ship_country,omitempty"`
+	ShipPostalCode    *string    `db:"ship_postal_code" json:"ship_postal_code,omitempty"`
+	Note              *string    `db:"note" json:"note,omitempty"`
+	PlacedAt          *time.Time `db:"placed_at" json:"placed_at,omitempty"`
+	PaidAt            *time.Time `db:"paid_at" json:"paid_at,omitempty"`
+	CreatedAt         time.Time  `db:"created_at" json:"created_at"`
+	UpdatedAt         time.Time  `db:"updated_at" json:"updated_at"`
 }
 
 type OrderItem struct {
@@ -166,4 +167,21 @@ type CheckoutRequest struct {
 
 type UpdateStatusRequest struct {
 	Status string `json:"status"`
+}
+
+// OrderLine is one line item in an admin-created order.
+type OrderLine struct {
+	ProductVariantID int64 `json:"product_variant_id"`
+	Quantity         int   `json:"quantity"`
+}
+
+// AdminCreateOrderRequest is an admin manually creating an order for a phone or
+// walk-in customer (with or without a linked account).
+type AdminCreateOrderRequest struct {
+	CustomerName    string           `json:"customer_name"`
+	UserID          *int64           `json:"user_id"` // optional linked account
+	FulfillmentType string           `json:"fulfillment_type"`
+	Items           []OrderLine      `json:"items"`
+	ShippingAddress *ShippingAddress `json:"shipping_address"` // required for delivery
+	Note            *string          `json:"note"`
 }

@@ -27,6 +27,7 @@ func RegisterRoutes(r chi.Router, h *Handler, requireAuth, requireAdmin func(htt
 		r.Use(requireAdmin)
 
 		r.Get("/admin/bookings", h.ListAdmin)
+		r.Post("/admin/bookings", h.CreateAdmin)
 		r.Get("/admin/bookings/{id}", h.GetAdmin)
 		r.Post("/admin/bookings/{id}/assign-driver", h.AssignDriver)
 		r.Patch("/admin/bookings/{id}/status", h.UpdateStatus)

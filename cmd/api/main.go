@@ -18,6 +18,7 @@ import (
 	"github.com/trimo/backend/internal/catalog"
 	"github.com/trimo/backend/internal/config"
 	"github.com/trimo/backend/internal/customers"
+	"github.com/trimo/backend/internal/dashboard"
 	"github.com/trimo/backend/internal/database"
 	"github.com/trimo/backend/internal/mobility"
 	"github.com/trimo/backend/internal/orders"
@@ -89,6 +90,7 @@ func run() error {
 	bookingsHandler := bookings.NewHandler(bookings.NewService(bookings.NewRepository(db)))
 	paymentsHandler := payments.NewHandler(payments.NewService(payments.NewRepository(db)))
 	customersHandler := customers.NewHandler(customers.NewService(customers.NewRepository(db)))
+	dashboardHandler := dashboard.NewHandler(dashboard.NewService(dashboard.NewRepository(db)))
 
 	srv := server.New(cfg, log, db)
 	srv.MountAPI(func(r chi.Router) {
@@ -99,6 +101,7 @@ func run() error {
 		bookings.RegisterRoutes(r, bookingsHandler, authMW.RequireAuth, authMW.RequireAdmin)
 		payments.RegisterRoutes(r, paymentsHandler, authMW.RequireAdmin)
 		customers.RegisterRoutes(r, customersHandler, authMW.RequireAdmin)
+		dashboard.RegisterRoutes(r, dashboardHandler, authMW.RequireAdmin)
 		if uploadsHandler != nil {
 			uploads.RegisterRoutes(r, uploadsHandler, authMW.RequireAdmin)
 		}

@@ -21,6 +21,11 @@ const (
 	PaymentRefunded = "refunded"
 )
 
+const (
+	PricingDaily         = "daily"
+	PricingCargoDistance = "cargo_distance"
+)
+
 // Occupying statuses (confirmed, driver_assigned, active) hold the car for a
 // time range; the SQL below and the DB triggers must agree on this set.
 
@@ -28,7 +33,8 @@ const (
 
 type Booking struct {
 	ID                int64      `db:"id" json:"id"`
-	UserID            int64      `db:"user_id" json:"user_id"`
+	UserID            *int64     `db:"user_id" json:"user_id,omitempty"`
+	CustomerName      *string    `db:"customer_name" json:"customer_name,omitempty"`
 	CarID             int64      `db:"car_id" json:"car_id"`
 	DriverID          *int64     `db:"driver_id" json:"driver_id,omitempty"`
 	BookingNumber     string     `db:"booking_number" json:"booking_number"`
@@ -40,6 +46,10 @@ type Booking struct {
 	DailyRateSnapshot string     `db:"daily_rate_snapshot" json:"daily_rate_snapshot"`
 	Fees              string     `db:"fees" json:"fees"`
 	TotalPrice        string     `db:"total_price" json:"total_price"`
+	PricingModel      string     `db:"pricing_model" json:"pricing_model"`
+	DistanceKm        *string    `db:"distance_km" json:"distance_km,omitempty"`
+	CargoPerKmRate    *string    `db:"cargo_per_km_rate_snapshot" json:"cargo_per_km_rate_snapshot,omitempty"`
+	CargoMinimumRate  *string    `db:"cargo_minimum_rate_snapshot" json:"cargo_minimum_rate_snapshot,omitempty"`
 	CarName           string     `db:"car_name" json:"car_name"`
 	CarCategory       *string    `db:"car_category" json:"car_category,omitempty"`
 	PickupLocation    string     `db:"pickup_location" json:"pickup_location"`
@@ -74,11 +84,14 @@ type BookingFilter struct {
 
 // carRow is the locked/read subset of a car used during booking.
 type carRow struct {
-	ID         int64  `db:"id"`
-	Name       string `db:"name"`
-	DailyRate  string `db:"daily_rate"`
-	Status     string `db:"status"`
-	CategoryID int64  `db:"category_id"`
+	ID               int64  `db:"id"`
+	Name             string `db:"name"`
+	DailyRate        string `db:"daily_rate"`
+	Status           string `db:"status"`
+	CategoryID       int64  `db:"category_id"`
+	IsCargoTransport bool   `db:"is_cargo_transport"`
+	CargoPerKmRate   string `db:"cargo_per_km_rate"`
+	CargoMinimumRate string `db:"cargo_minimum_rate"`
 }
 
 type driverRow struct {
@@ -96,6 +109,21 @@ type CreateBookingRequest struct {
 	EndAt           time.Time `json:"end_at"`   // RFC3339
 	PickupLocation  string    `json:"pickup_location"`
 	DropoffLocation *string   `json:"dropoff_location"`
+	DistanceKm      *string   `json:"distance_km"`
+	ContactPhone    string    `json:"contact_phone"`
+	Note            *string   `json:"note"`
+}
+
+type AdminCreateBookingRequest struct {
+	UserID          *int64    `json:"user_id"`
+	CustomerName    string    `json:"customer_name"`
+	CarID           int64     `json:"car_id"`
+	DriverID        *int64    `json:"driver_id"`
+	StartAt         time.Time `json:"start_at"`
+	EndAt           time.Time `json:"end_at"`
+	PickupLocation  string    `json:"pickup_location"`
+	DropoffLocation *string   `json:"dropoff_location"`
+	DistanceKm      *string   `json:"distance_km"`
 	ContactPhone    string    `json:"contact_phone"`
 	Note            *string   `json:"note"`
 }

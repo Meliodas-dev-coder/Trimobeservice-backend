@@ -15,6 +15,7 @@ var (
 	ErrBookingNotFound = errors.New("booking not found")
 	ErrCarMissing      = errors.New("car not found")
 	ErrDriverMissing   = errors.New("driver not found")
+	ErrCustomerMissing = errors.New("customer not found")
 )
 
 type Repository struct {
@@ -49,7 +50,11 @@ func (r *Repository) InTx(ctx context.Context, fn func(tx *sqlx.Tx) error) error
 func (r *Repository) LockCar(ctx context.Context, tx *sqlx.Tx, carID int64) (*carRow, error) {
 	var c carRow
 	err := sqlx.GetContext(ctx, tx, &c,
-		`SELECT id, name, daily_rate, status, category_id FROM cars WHERE id = ? FOR UPDATE`, carID)
+		`SELECT c.id, c.name, c.daily_rate, c.status, c.category_id,
+		        cc.is_cargo_transport, cc.cargo_per_km_rate, cc.cargo_minimum_rate
+		   FROM cars c
+		   JOIN car_categories cc ON cc.id = c.category_id
+		  WHERE c.id = ? FOR UPDATE`, carID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrCarMissing
 	}
@@ -62,7 +67,11 @@ func (r *Repository) LockCar(ctx context.Context, tx *sqlx.Tx, carID int64) (*ca
 func (r *Repository) GetCar(ctx context.Context, carID int64) (*carRow, error) {
 	var c carRow
 	err := r.db.GetContext(ctx, &c,
-		`SELECT id, name, daily_rate, status, category_id FROM cars WHERE id = ?`, carID)
+		`SELECT c.id, c.name, c.daily_rate, c.status, c.category_id,
+		        cc.is_cargo_transport, cc.cargo_per_km_rate, cc.cargo_minimum_rate
+		   FROM cars c
+		   JOIN car_categories cc ON cc.id = c.category_id
+		  WHERE c.id = ?`, carID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrCarMissing
 	}
@@ -77,6 +86,18 @@ func (r *Repository) CategoryName(ctx context.Context, q sqlx.QueryerContext, ca
 	err := sqlx.GetContext(ctx, q, &name, `SELECT name FROM car_categories WHERE id = ?`, categoryID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &name, nil
+}
+
+func (r *Repository) CustomerName(ctx context.Context, q sqlx.QueryerContext, userID int64) (*string, error) {
+	var name string
+	err := sqlx.GetContext(ctx, q, &name, `SELECT full_name FROM users WHERE id = ? AND role = 'customer'`, userID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrCustomerMissing
 	}
 	if err != nil {
 		return nil, err
@@ -137,12 +158,14 @@ func (r *Repository) HasDriverOverlap(ctx context.Context, q sqlx.QueryerContext
 
 func (r *Repository) InsertBooking(ctx context.Context, tx *sqlx.Tx, b *Booking) (int64, error) {
 	res, err := tx.ExecContext(ctx,
-		`INSERT INTO bookings (user_id, car_id, driver_id, booking_number, status, payment_status,
+		`INSERT INTO bookings (user_id, customer_name, car_id, driver_id, booking_number, status, payment_status,
 		 start_at, end_at, days, daily_rate_snapshot, fees, total_price,
+		 pricing_model, distance_km, cargo_per_km_rate_snapshot, cargo_minimum_rate_snapshot,
 		 car_name, car_category, pickup_location, dropoff_location, contact_phone, note)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		b.UserID, b.CarID, b.DriverID, b.BookingNumber, b.Status, b.PaymentStatus,
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		b.UserID, b.CustomerName, b.CarID, b.DriverID, b.BookingNumber, b.Status, b.PaymentStatus,
 		b.StartAt, b.EndAt, b.Days, b.DailyRateSnapshot, b.Fees, b.TotalPrice,
+		b.PricingModel, b.DistanceKm, b.CargoPerKmRate, b.CargoMinimumRate,
 		b.CarName, b.CarCategory, b.PickupLocation, b.DropoffLocation, b.ContactPhone, b.Note)
 	if err != nil {
 		return 0, mapTriggerErr(err)
@@ -183,8 +206,11 @@ func (r *Repository) MarkPaid(ctx context.Context, id int64) error {
 
 // --- booking reads ---
 
-const bookingCols = `id, user_id, car_id, driver_id, booking_number, status, payment_status,
+const bookingCols = `id, user_id,
+	COALESCE(customer_name, (SELECT full_name FROM users u WHERE u.id = bookings.user_id)) AS customer_name,
+	car_id, driver_id, booking_number, status, payment_status,
 	start_at, end_at, days, daily_rate_snapshot, fees, total_price,
+	pricing_model, distance_km, cargo_per_km_rate_snapshot, cargo_minimum_rate_snapshot,
 	car_name, car_category, pickup_location, dropoff_location, contact_phone, note,
 	paid_at, created_at, updated_at`
 

@@ -122,6 +122,7 @@ Admin (require `role=admin`):
 | PUT/DELETE | `/api/v1/admin/car-categories/{id}` | update / delete |
 | GET/POST | `/api/v1/admin/cars` | list (optional `?status=`) / create |
 | GET/PUT/DELETE | `/api/v1/admin/cars/{id}` | detail / update / delete |
+| GET | `/api/v1/admin/cars/{id}/overview` | car detail with usage revenue, booking counts, and booking feed |
 | POST | `/api/v1/admin/cars/{id}/images` | add a car image |
 | DELETE | `/api/v1/admin/car-images/{id}` | delete a car image |
 | GET/POST | `/api/v1/admin/drivers` | list (optional `?status=`) / create |
@@ -131,6 +132,15 @@ Pricing cascade: a new car's `daily_rate` is seeded from its category's
 `default_daily_rate` when left blank, then becomes the car's own source of
 truth. `registration_plate` is unique (blank → NULL). Car-category-specific
 specs (payload, luggage, …) go in the car's JSON `attributes`.
+
+Car and driver `status` values are effective for the current day on read:
+cars stored as `available` return `not_available` when they have a confirmed,
+driver-assigned, active, or completed booking overlapping today; available
+drivers return `assigned` under the same today-booking rule.
+
+Cargo-only car categories use route-distance pricing: routes up to 10km use
+`cargo_minimum_rate`; longer routes use `cargo_minimum_rate +
+cargo_per_km_rate * (distance_km - 10)`.
 
 ### Orders (phones e-commerce)
 
@@ -175,7 +185,8 @@ A booking reserves a car over a date range. Availability is checked inside a
 `SELECT … FOR UPDATE` transaction (the DB trigger from migration 000007 is the
 backstop), so a car is never double-booked. `status` is the rental lifecycle;
 `payment_status` is separate (manual, admin-confirmed). The daily rate is
-snapshotted at booking time.
+snapshotted at booking time, and rental days are billed as inclusive calendar
+days (start day = 1, return day also counts).
 
 Public:
 
@@ -187,7 +198,7 @@ Client (require a Bearer token):
 
 | Method | Path | Description |
 |--------|------|-------------|
-| POST | `/api/v1/bookings` | book `{car_id, start_at, end_at, pickup_location, dropoff_location?, contact_phone, note?}` |
+| POST | `/api/v1/bookings` | book `{car_id, start_at, end_at, pickup_location, dropoff_location?, distance_km?, contact_phone, note?}` |
 | GET | `/api/v1/bookings` | my bookings (paged) |
 | GET | `/api/v1/bookings/{id}` | my booking detail (with driver) |
 | POST | `/api/v1/bookings/{id}/cancel` | cancel while `confirmed`/`driver_assigned` |

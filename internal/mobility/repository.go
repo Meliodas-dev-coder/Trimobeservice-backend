@@ -28,9 +28,13 @@ func NewRepository(db *sqlx.DB) *Repository {
 	return &Repository{db: db}
 }
 
+const dayBookedStatuses = "'confirmed','driver_assigned','active','completed'"
+
 // --- car categories ---
 
-const carCategoryCols = `id, name, slug, description, default_daily_rate, image_url, sort_order, is_active, created_at, updated_at`
+const carCategoryCols = `id, name, slug, description, default_daily_rate,
+	is_cargo_transport, cargo_per_km_rate, cargo_minimum_rate,
+	sort_order, is_active, created_at, updated_at`
 
 func (r *Repository) ListCarCategories(ctx context.Context, activeOnly bool) ([]CarCategory, error) {
 	q := `SELECT ` + carCategoryCols + ` FROM car_categories`
@@ -66,9 +70,11 @@ func (r *Repository) CarCategorySlugExists(ctx context.Context, slug string, exc
 
 func (r *Repository) CreateCarCategory(ctx context.Context, c *CarCategory) (int64, error) {
 	res, err := r.db.ExecContext(ctx,
-		`INSERT INTO car_categories (name, slug, description, default_daily_rate, image_url, sort_order, is_active)
-		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		c.Name, c.Slug, c.Description, c.DefaultDailyRate, c.ImageURL, c.SortOrder, c.IsActive)
+		`INSERT INTO car_categories (name, slug, description, default_daily_rate,
+		 is_cargo_transport, cargo_per_km_rate, cargo_minimum_rate, sort_order, is_active)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		c.Name, c.Slug, c.Description, c.DefaultDailyRate, c.IsCargoTransport,
+		c.CargoPerKmRate, c.CargoMinimumRate, c.SortOrder, c.IsActive)
 	if err != nil {
 		return 0, mapWriteErr(err)
 	}
@@ -78,9 +84,12 @@ func (r *Repository) CreateCarCategory(ctx context.Context, c *CarCategory) (int
 func (r *Repository) UpdateCarCategory(ctx context.Context, c *CarCategory) error {
 	res, err := r.db.ExecContext(ctx,
 		`UPDATE car_categories
-		 SET name = ?, slug = ?, description = ?, default_daily_rate = ?, image_url = ?, sort_order = ?, is_active = ?
+		 SET name = ?, slug = ?, description = ?, default_daily_rate = ?,
+		     is_cargo_transport = ?, cargo_per_km_rate = ?, cargo_minimum_rate = ?,
+		     sort_order = ?, is_active = ?
 		 WHERE id = ?`,
-		c.Name, c.Slug, c.Description, c.DefaultDailyRate, c.ImageURL, c.SortOrder, c.IsActive, c.ID)
+		c.Name, c.Slug, c.Description, c.DefaultDailyRate, c.IsCargoTransport,
+		c.CargoPerKmRate, c.CargoMinimumRate, c.SortOrder, c.IsActive, c.ID)
 	if err != nil {
 		return mapWriteErr(err)
 	}
@@ -97,22 +106,50 @@ func (r *Repository) DeleteCarCategory(ctx context.Context, id int64) error {
 
 // --- cars ---
 
-const carCols = `id, category_id, name, slug, make, model, year, registration_plate, color, seats,
-	transmission, fuel_type, daily_rate, attributes, description, status, created_at, updated_at`
+const carBookedTodayExpr = `EXISTS (
+	SELECT 1 FROM bookings b
+	WHERE b.car_id = cars.id
+	  AND b.status IN (` + dayBookedStatuses + `)
+	  AND b.start_at < DATE_ADD(CURRENT_DATE(), INTERVAL 1 DAY)
+	  AND b.end_at > CURRENT_DATE()
+)`
+
+const carEffectiveStatusExpr = `CASE
+	WHEN cars.status = 'available' AND ` + carBookedTodayExpr + ` THEN 'not_available'
+	ELSE cars.status
+END`
+
+const carCols = `cars.id, cars.category_id, cars.name, cars.slug, cars.make, cars.model, cars.year,
+	cars.registration_plate, cars.color, cars.seats, cars.transmission, cars.fuel_type, cars.daily_rate,
+	(SELECT cc.is_cargo_transport FROM car_categories cc WHERE cc.id = cars.category_id) AS is_cargo_transport,
+	(SELECT cc.cargo_per_km_rate FROM car_categories cc WHERE cc.id = cars.category_id) AS cargo_per_km_rate,
+	(SELECT cc.cargo_minimum_rate FROM car_categories cc WHERE cc.id = cars.category_id) AS cargo_minimum_rate,
+	cars.attributes, cars.description, cars.status AS base_status, ` + carEffectiveStatusExpr + ` AS status,
+	(SELECT ci.url FROM car_images ci WHERE ci.car_id = cars.id ORDER BY ci.is_primary DESC, ci.sort_order, ci.id LIMIT 1) AS primary_image_url,
+	cars.created_at, cars.updated_at`
 
 func (r *Repository) ListCars(ctx context.Context, f CarFilter) ([]Car, int, error) {
 	var where []string
 	var args []any
 	if f.Status != "" {
-		where = append(where, "status = ?")
-		args = append(args, f.Status)
+		switch f.Status {
+		case CarStatusAvailable:
+			where = append(where, "cars.status = ? AND NOT "+carBookedTodayExpr)
+			args = append(args, CarStatusAvailable)
+		case CarStatusNotAvailable:
+			where = append(where, "cars.status = ? AND "+carBookedTodayExpr)
+			args = append(args, CarStatusAvailable)
+		default:
+			where = append(where, "cars.status = ?")
+			args = append(args, f.Status)
+		}
 	}
 	if f.CategoryID != nil {
-		where = append(where, "category_id = ?")
+		where = append(where, "cars.category_id = ?")
 		args = append(args, *f.CategoryID)
 	}
 	if f.Search != "" {
-		where = append(where, "name LIKE ?")
+		where = append(where, "cars.name LIKE ?")
 		args = append(args, "%"+f.Search+"%")
 	}
 	clause := ""
@@ -137,7 +174,7 @@ func (r *Repository) ListCars(ctx context.Context, f CarFilter) ([]Car, int, err
 
 func (r *Repository) GetCarByID(ctx context.Context, id int64) (*Car, error) {
 	var c Car
-	err := r.db.GetContext(ctx, &c, `SELECT `+carCols+` FROM cars WHERE id = ?`, id)
+	err := r.db.GetContext(ctx, &c, `SELECT `+carCols+` FROM cars WHERE cars.id = ?`, id)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrCarNotFound
 	}
@@ -149,7 +186,7 @@ func (r *Repository) GetCarByID(ctx context.Context, id int64) (*Car, error) {
 
 func (r *Repository) GetCarBySlug(ctx context.Context, slug string) (*Car, error) {
 	var c Car
-	err := r.db.GetContext(ctx, &c, `SELECT `+carCols+` FROM cars WHERE slug = ?`, slug)
+	err := r.db.GetContext(ctx, &c, `SELECT `+carCols+` FROM cars WHERE cars.slug = ?`, slug)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrCarNotFound
 	}
@@ -209,6 +246,55 @@ func (r *Repository) DeleteCar(ctx context.Context, id int64) error {
 	return notFoundIfNoRows(res, ErrCarNotFound)
 }
 
+func (r *Repository) CarUsageStats(ctx context.Context, carID int64) (*CarUsageStats, error) {
+	var stats CarUsageStats
+	err := r.db.GetContext(ctx, &stats,
+		`SELECT
+			COALESCE(SUM(CASE WHEN payment_status = 'paid' AND status <> 'cancelled' THEN total_price ELSE 0 END), 0) AS revenue_total,
+			COUNT(*) AS total_bookings,
+			COALESCE(SUM(CASE WHEN start_at >= NOW() AND status <> 'cancelled' THEN 1 ELSE 0 END), 0) AS future_bookings,
+			COALESCE(SUM(CASE WHEN payment_status = 'paid' THEN 1 ELSE 0 END), 0) AS paid_bookings
+		 FROM bookings
+		 WHERE car_id = ?`, carID)
+	if err != nil {
+		return nil, err
+	}
+	return &stats, nil
+}
+
+func (r *Repository) ListBookingsByCar(ctx context.Context, carID int64, limit int) ([]CarBookingSummary, error) {
+	if limit <= 0 || limit > 500 {
+		limit = 500
+	}
+	out := []CarBookingSummary{}
+	err := r.db.SelectContext(ctx, &out,
+		`SELECT
+			b.id,
+			b.booking_number,
+			COALESCE(b.customer_name, u.full_name) AS customer_name,
+			d.full_name AS driver_name,
+			b.status,
+			b.payment_status,
+			b.start_at,
+			b.end_at,
+			b.days,
+			b.total_price,
+			b.pickup_location,
+			b.dropoff_location,
+			b.paid_at,
+			b.created_at
+		 FROM bookings b
+		 LEFT JOIN users u ON u.id = b.user_id
+		 LEFT JOIN drivers d ON d.id = b.driver_id
+		 WHERE b.car_id = ?
+		 ORDER BY b.start_at DESC
+		 LIMIT ?`, carID, limit)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // --- car images ---
 
 const carImageCols = `id, car_id, url, alt_text, is_primary, sort_order, created_at`
@@ -255,16 +341,40 @@ func (r *Repository) DeleteCarImage(ctx context.Context, id int64) error {
 
 // --- drivers ---
 
-const driverCols = `id, full_name, phone, license_number, status, notes, created_at, updated_at`
+const driverBookedTodayExpr = `EXISTS (
+	SELECT 1 FROM bookings b
+	WHERE b.driver_id = drivers.id
+	  AND b.status IN (` + dayBookedStatuses + `)
+	  AND b.start_at < DATE_ADD(CURRENT_DATE(), INTERVAL 1 DAY)
+	  AND b.end_at > CURRENT_DATE()
+)`
+
+const driverEffectiveStatusExpr = `CASE
+	WHEN drivers.status = 'available' AND ` + driverBookedTodayExpr + ` THEN 'assigned'
+	ELSE drivers.status
+END`
+
+const driverCols = `drivers.id, drivers.full_name, drivers.phone, drivers.license_number,
+	drivers.status AS base_status, ` + driverEffectiveStatusExpr + ` AS status,
+	drivers.notes, drivers.created_at, drivers.updated_at`
 
 func (r *Repository) ListDrivers(ctx context.Context, status string) ([]Driver, error) {
 	q := `SELECT ` + driverCols + ` FROM drivers`
 	var args []any
 	if status != "" {
-		q += ` WHERE status = ?`
-		args = append(args, status)
+		switch status {
+		case DriverStatusAvailable:
+			q += ` WHERE drivers.status = ? AND NOT ` + driverBookedTodayExpr
+			args = append(args, DriverStatusAvailable)
+		case DriverStatusAssigned:
+			q += ` WHERE drivers.status = ? OR (drivers.status = ? AND ` + driverBookedTodayExpr + `)`
+			args = append(args, DriverStatusAssigned, DriverStatusAvailable)
+		default:
+			q += ` WHERE drivers.status = ?`
+			args = append(args, status)
+		}
 	}
-	q += ` ORDER BY full_name`
+	q += ` ORDER BY drivers.full_name`
 	out := []Driver{}
 	if err := r.db.SelectContext(ctx, &out, q, args...); err != nil {
 		return nil, err
@@ -274,7 +384,7 @@ func (r *Repository) ListDrivers(ctx context.Context, status string) ([]Driver, 
 
 func (r *Repository) GetDriverByID(ctx context.Context, id int64) (*Driver, error) {
 	var d Driver
-	err := r.db.GetContext(ctx, &d, `SELECT `+driverCols+` FROM drivers WHERE id = ?`, id)
+	err := r.db.GetContext(ctx, &d, `SELECT `+driverCols+` FROM drivers WHERE drivers.id = ?`, id)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrDriverNotFound
 	}

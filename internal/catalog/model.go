@@ -15,6 +15,7 @@ type Category struct {
 	ParentID    *int64    `db:"parent_id" json:"parent_id,omitempty"`
 	Name        string    `db:"name" json:"name"`
 	Slug        string    `db:"slug" json:"slug"`
+	TemplateKey string    `db:"template_key" json:"template_key"`
 	Description *string   `db:"description" json:"description,omitempty"`
 	ImageURL    *string   `db:"image_url" json:"image_url,omitempty"`
 	SortOrder   int       `db:"sort_order" json:"sort_order"`
@@ -34,15 +35,24 @@ type Brand struct {
 }
 
 type Product struct {
-	ID          int64     `db:"id" json:"id"`
-	CategoryID  int64     `db:"category_id" json:"category_id"`
-	BrandID     *int64    `db:"brand_id" json:"brand_id,omitempty"`
-	Name        string    `db:"name" json:"name"`
-	Slug        string    `db:"slug" json:"slug"`
-	Description *string   `db:"description" json:"description,omitempty"`
-	IsActive    bool      `db:"is_active" json:"is_active"`
-	CreatedAt   time.Time `db:"created_at" json:"created_at"`
-	UpdatedAt   time.Time `db:"updated_at" json:"updated_at"`
+	ID          int64          `db:"id" json:"id"`
+	CategoryID  int64          `db:"category_id" json:"category_id"`
+	BrandID     *int64         `db:"brand_id" json:"brand_id,omitempty"`
+	Name        string         `db:"name" json:"name"`
+	Slug        string         `db:"slug" json:"slug"`
+	Description *string        `db:"description" json:"description,omitempty"`
+	Attributes  types.JSONText `db:"attributes" json:"attributes,omitempty"`
+	IsActive    bool           `db:"is_active" json:"is_active"`
+	CreatedAt   time.Time      `db:"created_at" json:"created_at"`
+	UpdatedAt   time.Time      `db:"updated_at" json:"updated_at"`
+
+	// List-only aggregates: populated by ListProducts so the admin table/cards can
+	// show an image, variant count, and price range without a per-row fetch.
+	// Zero/omitted on single-product reads (which return the full Variants/Images).
+	PrimaryImageURL *string `db:"primary_image_url" json:"primary_image_url,omitempty"`
+	VariantCount    int     `db:"variant_count" json:"variant_count"`
+	PriceMin        *string `db:"price_min" json:"price_min,omitempty"`
+	PriceMax        *string `db:"price_max" json:"price_max,omitempty"`
 }
 
 type Variant struct {
@@ -95,6 +105,7 @@ type ProductFilter struct {
 type CategoryRequest struct {
 	Name        string  `json:"name"`
 	ParentID    *int64  `json:"parent_id"`
+	TemplateKey string  `json:"template_key"`
 	Description *string `json:"description"`
 	ImageURL    *string `json:"image_url"`
 	SortOrder   int     `json:"sort_order"`
@@ -108,11 +119,12 @@ type BrandRequest struct {
 }
 
 type ProductRequest struct {
-	CategoryID  int64   `json:"category_id"`
-	BrandID     *int64  `json:"brand_id"`
-	Name        string  `json:"name"`
-	Description *string `json:"description"`
-	IsActive    *bool   `json:"is_active"`
+	CategoryID  int64          `json:"category_id"`
+	BrandID     *int64         `json:"brand_id"`
+	Name        string         `json:"name"`
+	Description *string        `json:"description"`
+	Attributes  types.JSONText `json:"attributes"`
+	IsActive    *bool          `json:"is_active"`
 }
 
 type VariantRequest struct {
@@ -132,6 +144,13 @@ type ImageRequest struct {
 	AltText   *string `json:"alt_text"`
 	IsPrimary bool    `json:"is_primary"`
 	SortOrder int     `json:"sort_order"`
+}
+
+// ImageUpdateRequest patches an existing image; used mainly to promote a gallery
+// image to the product cover (is_primary).
+type ImageUpdateRequest struct {
+	AltText   *string `json:"alt_text"`
+	IsPrimary *bool   `json:"is_primary"`
 }
 
 func derefBool(b *bool, def bool) bool {

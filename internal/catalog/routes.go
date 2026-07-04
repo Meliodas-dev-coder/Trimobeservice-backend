@@ -19,6 +19,8 @@ func RegisterRoutes(r chi.Router, h *Handler, adminOnly func(http.Handler) http.
 	r.Group(func(r chi.Router) {
 		r.Use(adminOnly)
 
+		r.Get("/admin/product-templates", h.ListTemplates)
+
 		r.Get("/admin/categories", h.ListCategoriesAdmin)
 		r.Post("/admin/categories", h.CreateCategory)
 		r.Put("/admin/categories/{id}", h.UpdateCategory)
@@ -40,6 +42,7 @@ func RegisterRoutes(r chi.Router, h *Handler, adminOnly func(http.Handler) http.
 		r.Delete("/admin/variants/{id}", h.DeleteVariant)
 
 		r.Post("/admin/products/{id}/images", h.CreateImage)
+		r.Put("/admin/images/{id}", h.UpdateImage)
 		r.Delete("/admin/images/{id}", h.DeleteImage)
 	})
 }

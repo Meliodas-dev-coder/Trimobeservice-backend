@@ -33,7 +33,7 @@ func NewRepository(db *sqlx.DB) *Repository {
 
 // --- categories ---
 
-const categoryCols = `id, parent_id, name, slug, description, image_url, sort_order, is_active, created_at, updated_at`
+const categoryCols = `id, parent_id, name, slug, template_key, description, image_url, sort_order, is_active, created_at, updated_at`
 
 func (r *Repository) ListCategories(ctx context.Context, activeOnly bool) ([]Category, error) {
 	q := `SELECT ` + categoryCols + ` FROM product_categories`
@@ -75,9 +75,9 @@ func (r *Repository) CategorySlugExists(ctx context.Context, slug string, exclud
 
 func (r *Repository) CreateCategory(ctx context.Context, c *Category) (int64, error) {
 	res, err := r.db.ExecContext(ctx,
-		`INSERT INTO product_categories (parent_id, name, slug, description, image_url, sort_order, is_active)
-		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		c.ParentID, c.Name, c.Slug, c.Description, c.ImageURL, c.SortOrder, c.IsActive)
+		`INSERT INTO product_categories (parent_id, name, slug, template_key, description, image_url, sort_order, is_active)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		c.ParentID, c.Name, c.Slug, c.TemplateKey, c.Description, c.ImageURL, c.SortOrder, c.IsActive)
 	if err != nil {
 		return 0, mapWriteErr(err)
 	}
@@ -87,9 +87,9 @@ func (r *Repository) CreateCategory(ctx context.Context, c *Category) (int64, er
 func (r *Repository) UpdateCategory(ctx context.Context, c *Category) error {
 	res, err := r.db.ExecContext(ctx,
 		`UPDATE product_categories
-		 SET parent_id = ?, name = ?, slug = ?, description = ?, image_url = ?, sort_order = ?, is_active = ?
+		 SET parent_id = ?, name = ?, slug = ?, template_key = ?, description = ?, image_url = ?, sort_order = ?, is_active = ?
 		 WHERE id = ?`,
-		c.ParentID, c.Name, c.Slug, c.Description, c.ImageURL, c.SortOrder, c.IsActive, c.ID)
+		c.ParentID, c.Name, c.Slug, c.TemplateKey, c.Description, c.ImageURL, c.SortOrder, c.IsActive, c.ID)
 	if err != nil {
 		return mapWriteErr(err)
 	}
@@ -176,7 +176,32 @@ func (r *Repository) DeleteBrand(ctx context.Context, id int64) error {
 
 // --- products ---
 
-const productCols = `id, category_id, brand_id, name, slug, description, is_active, created_at, updated_at`
+const productCols = `id, category_id, brand_id, name, slug, description, attributes, is_active, created_at, updated_at`
+
+// productListCols adds per-product aggregates (primary image, variant count,
+// active price range) via correlated subqueries, for the admin list/cards/tree.
+// The cover image resolves as: product-level cover (primary) -> first variant's
+// image -> any product image.
+const productListCols = productCols + `,
+	COALESCE(
+	  (SELECT url FROM product_images
+	     WHERE product_images.product_id = products.id
+	       AND product_images.variant_id IS NULL AND product_images.is_primary = 1
+	     ORDER BY product_images.sort_order, product_images.id LIMIT 1),
+	  (SELECT pi.url FROM product_images pi
+	     JOIN product_variants pv ON pv.id = pi.variant_id
+	     WHERE pi.product_id = products.id
+	     ORDER BY pv.id, pi.is_primary DESC, pi.sort_order, pi.id LIMIT 1),
+	  (SELECT url FROM product_images
+	     WHERE product_images.product_id = products.id
+	     ORDER BY is_primary DESC, sort_order, id LIMIT 1)
+	) AS primary_image_url,
+	(SELECT COUNT(*) FROM product_variants
+	   WHERE product_variants.product_id = products.id) AS variant_count,
+	(SELECT MIN(price) FROM product_variants
+	   WHERE product_variants.product_id = products.id AND is_active = TRUE) AS price_min,
+	(SELECT MAX(price) FROM product_variants
+	   WHERE product_variants.product_id = products.id AND is_active = TRUE) AS price_max`
 
 func (r *Repository) ListProducts(ctx context.Context, f ProductFilter) ([]Product, int, error) {
 	var where []string
@@ -209,7 +234,7 @@ func (r *Repository) ListProducts(ctx context.Context, f ProductFilter) ([]Produ
 	listArgs := append(append([]any{}, args...), f.Limit, f.Offset)
 	out := []Product{}
 	err := r.db.SelectContext(ctx, &out,
-		`SELECT `+productCols+` FROM products`+clause+` ORDER BY created_at DESC LIMIT ? OFFSET ?`, listArgs...)
+		`SELECT `+productListCols+` FROM products`+clause+` ORDER BY created_at DESC LIMIT ? OFFSET ?`, listArgs...)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -249,9 +274,9 @@ func (r *Repository) ProductSlugExists(ctx context.Context, slug string, exclude
 
 func (r *Repository) CreateProduct(ctx context.Context, p *Product) (int64, error) {
 	res, err := r.db.ExecContext(ctx,
-		`INSERT INTO products (category_id, brand_id, name, slug, description, is_active)
-		 VALUES (?, ?, ?, ?, ?, ?)`,
-		p.CategoryID, p.BrandID, p.Name, p.Slug, p.Description, p.IsActive)
+		`INSERT INTO products (category_id, brand_id, name, slug, description, attributes, is_active)
+		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		p.CategoryID, p.BrandID, p.Name, p.Slug, p.Description, p.Attributes, p.IsActive)
 	if err != nil {
 		return 0, mapWriteErr(err)
 	}
@@ -261,9 +286,9 @@ func (r *Repository) CreateProduct(ctx context.Context, p *Product) (int64, erro
 func (r *Repository) UpdateProduct(ctx context.Context, p *Product) error {
 	res, err := r.db.ExecContext(ctx,
 		`UPDATE products
-		 SET category_id = ?, brand_id = ?, name = ?, slug = ?, description = ?, is_active = ?
+		 SET category_id = ?, brand_id = ?, name = ?, slug = ?, description = ?, attributes = ?, is_active = ?
 		 WHERE id = ?`,
-		p.CategoryID, p.BrandID, p.Name, p.Slug, p.Description, p.IsActive, p.ID)
+		p.CategoryID, p.BrandID, p.Name, p.Slug, p.Description, p.Attributes, p.IsActive, p.ID)
 	if err != nil {
 		return mapWriteErr(err)
 	}
@@ -379,12 +404,55 @@ func (r *Repository) GetImageByID(ctx context.Context, id int64) (*Image, error)
 	return &im, nil
 }
 
+func (r *Repository) UpdateImage(ctx context.Context, im *Image) error {
+	res, err := r.db.ExecContext(ctx,
+		`UPDATE product_images SET alt_text = ?, is_primary = ?, sort_order = ? WHERE id = ?`,
+		im.AltText, im.IsPrimary, im.SortOrder, im.ID)
+	if err != nil {
+		return mapWriteErr(err)
+	}
+	return notFoundIfNoRows(res, ErrImageNotFound)
+}
+
+// ClearProductCover unsets is_primary on a product's other product-level images
+// so there is at most one cover. exceptID is the image being promoted.
+func (r *Repository) ClearProductCover(ctx context.Context, productID, exceptID int64) error {
+	_, err := r.db.ExecContext(ctx,
+		`UPDATE product_images SET is_primary = 0
+		 WHERE product_id = ? AND variant_id IS NULL AND id <> ?`, productID, exceptID)
+	return err
+}
+
 func (r *Repository) DeleteImage(ctx context.Context, id int64) error {
 	res, err := r.db.ExecContext(ctx, `DELETE FROM product_images WHERE id = ?`, id)
 	if err != nil {
 		return mapWriteErr(err)
 	}
 	return notFoundIfNoRows(res, ErrImageNotFound)
+}
+
+// --- facets ---
+
+// ReplaceProductFacets rewrites a product's denormalised facet rows in one tx:
+// clear the old set, insert the new one. Called after a product/variant change.
+func (r *Repository) ReplaceProductFacets(ctx context.Context, productID int64, facets []Facet) error {
+	tx, err := r.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	if _, err := tx.ExecContext(ctx, `DELETE FROM product_facets WHERE product_id = ?`, productID); err != nil {
+		return err
+	}
+	for _, f := range facets {
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO product_facets (product_id, facet_key, facet_value) VALUES (?, ?, ?)`,
+			productID, f.Key, f.Value); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
 // --- helpers ---

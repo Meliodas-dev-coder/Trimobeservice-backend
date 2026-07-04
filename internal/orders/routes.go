@@ -30,6 +30,7 @@ func RegisterRoutes(r chi.Router, h *Handler, requireAuth, requireAdmin func(htt
 		r.Use(requireAdmin)
 
 		r.Get("/admin/orders", h.ListOrdersAdmin)
+		r.Post("/admin/orders", h.CreateOrderAdmin)
 		r.Get("/admin/orders/{id}", h.GetOrderAdmin)
 		r.Patch("/admin/orders/{id}/status", h.UpdateOrderStatus)
 		// Payment confirmation is handled by the payments module

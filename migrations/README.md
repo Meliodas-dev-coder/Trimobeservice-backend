@@ -15,6 +15,11 @@ MySQL 8.0+ schema for the Trimo multiservice platform, written for
 | 000005 | `bookings` | `bookings` |
 | 000006 | `payments` | `payments` (polymorphic: order or booking) |
 | 000007 | `booking_overlap_guard` | triggers preventing overlapping car bookings |
+| 000008 | `remove_car_category_image_url` | drops category-level car image column |
+| 000009 | `admin_manual_bookings` | allows bookings without app-user accounts and stores customer name snapshots |
+| 000010 | `cargo_transport_pricing` | cargo category rates and cargo booking distance snapshots |
+| 000011 | `product_templates` | `product_categories.template_key`, `products.attributes` (JSON), `product_facets` |
+| 000012 | `admin_manual_orders` | nullable `orders.user_id` + `orders.customer_name` (phone/walk-in orders) |
 
 They must apply in order — later migrations reference earlier tables via
 foreign keys.
@@ -30,8 +35,17 @@ foreign keys.
 - **Category default rate.** `car_categories.default_daily_rate` is a baseline
   that prefills new cars; `cars.daily_rate` is the real, per-car source of
   truth; `bookings.daily_rate_snapshot` freezes it per booking.
+- **Cargo transport pricing.** Cargo-only car categories use
+  `cargo_minimum_rate` for the first 10km, then add
+  `cargo_per_km_rate * (distance_km - 10)` for longer routes.
 - **Category-specific specs** live in the `JSON` `attributes` column on `cars`
-  (e.g. `payload_kg` for cargo, `luggage_m3` for buses) and `product_variants`.
+  (e.g. `payload_kg` for cargo, `luggage_m3` for buses), on `products`
+  (product-level specs), and on `product_variants` (per-SKU axes).
+- **Product templates.** A `product_categories.template_key` picks a product
+  "type" (phone, laptop, audio…, defined in Go, not the DB). That type drives
+  which spec fields a product/variant carries in `attributes`. Filterable specs
+  are denormalised into `product_facets` on every product/variant write for fast
+  storefront faceting.
 - **No double-booking.** Enforced in two layers: the application must check
   availability inside the booking transaction with `SELECT ... FOR UPDATE`, and
   the triggers in 000007 are the DB-level safety net.

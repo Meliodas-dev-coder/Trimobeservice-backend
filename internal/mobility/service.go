@@ -45,9 +45,15 @@ func (s *Service) CreateCarCategory(ctx context.Context, req CarCategoryRequest)
 		Slug:             slug,
 		Description:      req.Description,
 		DefaultDailyRate: defaultRate(req.DefaultDailyRate),
-		ImageURL:         req.ImageURL,
+		IsCargoTransport: derefBool(req.IsCargoTransport, false),
+		CargoPerKmRate:   defaultRate(req.CargoPerKmRate),
+		CargoMinimumRate: defaultRate(req.CargoMinimumRate),
 		SortOrder:        req.SortOrder,
 		IsActive:         derefBool(req.IsActive, true),
+	}
+	if !c.IsCargoTransport {
+		c.CargoPerKmRate = "0"
+		c.CargoMinimumRate = "0"
 	}
 	id, err := s.repo.CreateCarCategory(ctx, c)
 	if err != nil {
@@ -69,7 +75,13 @@ func (s *Service) UpdateCarCategory(ctx context.Context, id int64, req CarCatego
 	c.Slug = slug
 	c.Description = req.Description
 	c.DefaultDailyRate = defaultRate(req.DefaultDailyRate)
-	c.ImageURL = req.ImageURL
+	c.IsCargoTransport = derefBool(req.IsCargoTransport, false)
+	c.CargoPerKmRate = defaultRate(req.CargoPerKmRate)
+	c.CargoMinimumRate = defaultRate(req.CargoMinimumRate)
+	if !c.IsCargoTransport {
+		c.CargoPerKmRate = "0"
+		c.CargoMinimumRate = "0"
+	}
 	c.SortOrder = req.SortOrder
 	if req.IsActive != nil {
 		c.IsActive = *req.IsActive
@@ -107,6 +119,22 @@ func (s *Service) GetCarByID(ctx context.Context, id int64) (*CarDetail, error) 
 		return nil, err
 	}
 	return s.assembleDetail(ctx, c)
+}
+
+func (s *Service) GetCarOverview(ctx context.Context, id int64) (*CarOverview, error) {
+	car, err := s.GetCarByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	stats, err := s.repo.CarUsageStats(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	bookings, err := s.repo.ListBookingsByCar(ctx, id, 500)
+	if err != nil {
+		return nil, err
+	}
+	return &CarOverview{Car: car, Stats: *stats, Bookings: bookings}, nil
 }
 
 func (s *Service) CreateCar(ctx context.Context, req CarRequest) (*CarDetail, error) {
@@ -147,7 +175,7 @@ func (s *Service) CreateCar(ctx context.Context, req CarRequest) (*CarDetail, er
 		DailyRate:         rate,
 		Attributes:        req.Attributes,
 		Description:       req.Description,
-		Status:            statusOr(req.Status, CarStatusAvailable),
+		Status:            storedCarStatus(statusOr(req.Status, CarStatusAvailable)),
 	}
 	id, err := s.repo.CreateCar(ctx, c)
 	if err != nil {
@@ -192,7 +220,9 @@ func (s *Service) UpdateCar(ctx context.Context, id int64, req CarRequest) (*Car
 	c.Attributes = req.Attributes
 	c.Description = req.Description
 	if req.Status != nil {
-		c.Status = *req.Status
+		c.Status = storedCarStatus(*req.Status)
+	} else if c.BaseStatus != "" {
+		c.Status = c.BaseStatus
 	}
 	if err := s.repo.UpdateCar(ctx, c); err != nil {
 		return nil, err
@@ -280,7 +310,9 @@ func (s *Service) UpdateDriver(ctx context.Context, id int64, req DriverRequest)
 	d.Phone = strings.TrimSpace(req.Phone)
 	d.LicenseNumber = strings.TrimSpace(req.LicenseNumber)
 	if req.Status != nil {
-		d.Status = *req.Status
+		d.Status = storedDriverStatus(d, *req.Status)
+	} else if d.BaseStatus != "" {
+		d.Status = d.BaseStatus
 	}
 	d.Notes = req.Notes
 	if err := s.repo.UpdateDriver(ctx, d); err != nil {
@@ -377,6 +409,20 @@ func statusOr(s *string, def string) string {
 		return *s
 	}
 	return def
+}
+
+func storedCarStatus(status string) string {
+	if status == CarStatusNotAvailable {
+		return CarStatusAvailable
+	}
+	return status
+}
+
+func storedDriverStatus(d *Driver, requested string) string {
+	if d.BaseStatus == DriverStatusAvailable && d.Status == DriverStatusAssigned && requested == DriverStatusAssigned {
+		return DriverStatusAvailable
+	}
+	return requested
 }
 
 // normalizePlate trims and drops empty plates to NULL so the unique index does

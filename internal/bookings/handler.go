@@ -124,6 +124,23 @@ func (h *Handler) Cancel(w http.ResponseWriter, r *http.Request) {
 
 // ===================== admin: bookings =====================
 
+func (h *Handler) CreateAdmin(w http.ResponseWriter, r *http.Request) {
+	var req AdminCreateBookingRequest
+	if !decode(w, r, &req) {
+		return
+	}
+	if p := validateAdminCreateBooking(req); len(p) > 0 {
+		httpx.ValidationError(w, p)
+		return
+	}
+	b, err := h.svc.CreateAdmin(r.Context(), req)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	httpx.JSON(w, http.StatusCreated, httpx.Envelope{"booking": b})
+}
+
 func (h *Handler) ListAdmin(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	limit, page := parsePage(r)
@@ -252,7 +269,8 @@ func writeError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, ErrBookingNotFound),
 		errors.Is(err, ErrCarMissing),
-		errors.Is(err, ErrDriverMissing):
+		errors.Is(err, ErrDriverMissing),
+		errors.Is(err, ErrCustomerMissing):
 		httpx.Error(w, http.StatusNotFound, err.Error())
 	case errors.Is(err, ErrCarNotFree),
 		errors.Is(err, ErrCarUnavailable),
@@ -262,7 +280,10 @@ func writeError(w http.ResponseWriter, err error) {
 		errors.Is(err, ErrInvalidTransition),
 		errors.Is(err, ErrNotCancellable):
 		httpx.Error(w, http.StatusConflict, err.Error())
-	case errors.Is(err, ErrInvalidDates), errors.Is(err, ErrPastStart):
+	case errors.Is(err, ErrInvalidDates),
+		errors.Is(err, ErrPastStart),
+		errors.Is(err, ErrDistanceRequired),
+		errors.Is(err, ErrInvalidDistance):
 		httpx.Error(w, http.StatusUnprocessableEntity, err.Error())
 	default:
 		httpx.Error(w, http.StatusInternalServerError, "internal server error")
