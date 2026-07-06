@@ -9,6 +9,7 @@ import "time"
 const (
 	PayableOrder   = "order"
 	PayableBooking = "booking"
+	PayableEvent   = "event"
 )
 
 // Payment methods.
@@ -35,6 +36,8 @@ const (
 
 	bookingCancelled = "cancelled"
 
+	eventCancelled = "cancelled"
+
 	targetPaid = "paid"
 )
 
@@ -51,6 +54,43 @@ type Payment struct {
 	Note         *string    `db:"note" json:"note,omitempty"`
 	CreatedAt    time.Time  `db:"created_at" json:"created_at"`
 	UpdatedAt    time.Time  `db:"updated_at" json:"updated_at"`
+}
+
+type PaymentDetail struct {
+	Payment
+	Target *PaymentTarget `json:"target,omitempty"`
+}
+
+type PaymentTarget struct {
+	Type            string              `db:"target_type" json:"type"`
+	ID              int64               `db:"id" json:"id"`
+	UserID          *int64              `db:"user_id" json:"user_id,omitempty"`
+	CustomerName    *string             `db:"customer_name" json:"customer_name,omitempty"`
+	Number          string              `db:"number" json:"number"`
+	Status          string              `db:"status" json:"status"`
+	PaymentStatus   string              `db:"payment_status" json:"payment_status"`
+	Total           string              `db:"total" json:"total"`
+	FulfillmentType *string             `db:"fulfillment_type" json:"fulfillment_type,omitempty"`
+	CarName         *string             `db:"car_name" json:"car_name,omitempty"`
+	CarCategory     *string             `db:"car_category" json:"car_category,omitempty"`
+	EventType       *string             `db:"event_type" json:"event_type,omitempty"`
+	StartAt         *time.Time          `db:"start_at" json:"start_at,omitempty"`
+	EndAt           *time.Time          `db:"end_at" json:"end_at,omitempty"`
+	PickupLocation  *string             `db:"pickup_location" json:"pickup_location,omitempty"`
+	DropoffLocation *string             `db:"dropoff_location" json:"dropoff_location,omitempty"`
+	ContactPhone    *string             `db:"contact_phone" json:"contact_phone,omitempty"`
+	CreatedAt       time.Time           `db:"created_at" json:"created_at"`
+	Items           []PaymentTargetItem `json:"items,omitempty"`
+}
+
+type PaymentTargetItem struct {
+	ID           int64   `db:"id" json:"id"`
+	ProductName  string  `db:"product_name" json:"product_name"`
+	VariantLabel *string `db:"variant_label" json:"variant_label,omitempty"`
+	SKU          *string `db:"sku" json:"sku,omitempty"`
+	UnitPrice    string  `db:"unit_price" json:"unit_price"`
+	Quantity     int     `db:"quantity" json:"quantity"`
+	LineTotal    string  `db:"line_total" json:"line_total"`
 }
 
 // PaymentFilter drives the list query.

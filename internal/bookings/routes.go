@@ -11,6 +11,7 @@ import (
 func RegisterRoutes(r chi.Router, h *Handler, requireAuth, requireAdmin func(http.Handler) http.Handler) {
 	// public
 	r.Get("/availability", h.CheckAvailability)
+	r.Get("/availability/ranges", h.BookedRanges)
 
 	// client (authenticated customer)
 	r.Group(func(r chi.Router) {

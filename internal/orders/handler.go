@@ -306,7 +306,8 @@ func writeError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, ErrOrderNotFound),
 		errors.Is(err, ErrCartItemNotFound),
-		errors.Is(err, ErrVariantMissing):
+		errors.Is(err, ErrVariantMissing),
+		errors.Is(err, ErrCustomerMissing):
 		httpx.Error(w, http.StatusNotFound, err.Error())
 	case errors.Is(err, ErrInsufficientStock),
 		errors.Is(err, ErrVariantInactive),

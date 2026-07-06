@@ -20,15 +20,17 @@ MySQL 8.0+ schema for the Trimo multiservice platform, written for
 | 000010 | `cargo_transport_pricing` | cargo category rates and cargo booking distance snapshots |
 | 000011 | `product_templates` | `product_categories.template_key`, `products.attributes` (JSON), `product_facets` |
 | 000012 | `admin_manual_orders` | nullable `orders.user_id` + `orders.customer_name` (phone/walk-in orders) |
+| 000013 | `event_planning` | `event_service_categories`, `event_services`, `event_requests`, `event_request_services` |
 
 They must apply in order — later migrations reference earlier tables via
 foreign keys.
 
 ## Design notes
 
-- **Two domains, shared users.** Phones (e-commerce) and cars (time-based
-  rental with driver) are separate module trees that share `users`, auth, and
-  `payments`. Each follows the same shape: **Category → Item → Transaction**.
+- **Three domains, shared users.** Phones (e-commerce), cars (time-based
+  rental with driver), and event planning (service requests) are separate
+  module trees that share `users`, auth, and `payments`. Each follows the same
+  shape: **Category → Item → Transaction**.
 - **Price snapshots.** `order_items` and `bookings` freeze the price agreed at
   purchase/booking time. Changing a product/car rate later never alters
   historical records.
@@ -50,7 +52,8 @@ foreign keys.
   availability inside the booking transaction with `SELECT ... FOR UPDATE`, and
   the triggers in 000007 are the DB-level safety net.
 - **Manual payments.** `payments` records what an admin confirms (cash / bank
-  transfer / mobile money). Adding a real gateway later is just a new `method`.
+  transfer / mobile money) for orders, bookings, and quoted event requests.
+  Adding a real gateway later is just a new `method`.
 
 ## Running
 

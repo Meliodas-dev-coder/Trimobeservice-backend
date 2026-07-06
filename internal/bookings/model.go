@@ -143,3 +143,10 @@ type AvailabilityResult struct {
 	EndAt     time.Time `json:"end_at"`
 	Available bool      `json:"available"`
 }
+
+// BookedRange is an occupied window on a car's calendar, exposed publicly so
+// clients can grey out unavailable dates before submitting a booking.
+type BookedRange struct {
+	StartAt time.Time `db:"start_at" json:"start_at"`
+	EndAt   time.Time `db:"end_at" json:"end_at"`
+}

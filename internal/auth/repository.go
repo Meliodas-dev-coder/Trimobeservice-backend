@@ -12,6 +12,7 @@ import (
 var (
 	ErrUserNotFound    = errors.New("user not found")
 	ErrRefreshNotFound = errors.New("refresh token not found")
+	ErrAddressNotFound = errors.New("address not found")
 )
 
 // Repository is the data-access layer for users and refresh tokens.
@@ -21,6 +22,24 @@ type Repository struct {
 
 func NewRepository(db *sqlx.DB) *Repository {
 	return &Repository{db: db}
+}
+
+func (r *Repository) InTx(ctx context.Context, fn func(tx *sqlx.Tx) error) error {
+	tx, err := r.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if p := recover(); p != nil {
+			_ = tx.Rollback()
+			panic(p)
+		}
+	}()
+	if err := fn(tx); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	return tx.Commit()
 }
 
 func (r *Repository) CreateUser(ctx context.Context, u *User) (int64, error) {
@@ -70,6 +89,80 @@ func (r *Repository) GetByID(ctx context.Context, id int64) (*User, error) {
 		return nil, err
 	}
 	return &u, nil
+}
+
+const addressCols = `id, user_id, label, recipient_name, phone, line1, line2, city, region, country, postal_code, is_default, created_at, updated_at`
+
+func (r *Repository) ListAddresses(ctx context.Context, userID int64) ([]Address, error) {
+	out := []Address{}
+	err := r.db.SelectContext(ctx, &out,
+		`SELECT `+addressCols+`
+		   FROM addresses
+		  WHERE user_id = ?
+		  ORDER BY is_default DESC, updated_at DESC, id DESC`, userID)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (r *Repository) GetAddress(ctx context.Context, q sqlx.QueryerContext, userID, id int64) (*Address, error) {
+	var a Address
+	err := sqlx.GetContext(ctx, q, &a,
+		`SELECT `+addressCols+` FROM addresses WHERE id = ? AND user_id = ?`, id, userID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrAddressNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &a, nil
+}
+
+func (r *Repository) CountAddresses(ctx context.Context, q sqlx.QueryerContext, userID int64) (int, error) {
+	var total int
+	err := sqlx.GetContext(ctx, q, &total, `SELECT COUNT(*) FROM addresses WHERE user_id = ?`, userID)
+	return total, err
+}
+
+func (r *Repository) ClearDefaultAddresses(ctx context.Context, tx *sqlx.Tx, userID int64) error {
+	_, err := tx.ExecContext(ctx, `UPDATE addresses SET is_default = FALSE WHERE user_id = ?`, userID)
+	return err
+}
+
+func (r *Repository) CreateAddressTx(ctx context.Context, tx *sqlx.Tx, a *Address) (int64, error) {
+	res, err := tx.ExecContext(ctx,
+		`INSERT INTO addresses (user_id, label, recipient_name, phone, line1, line2, city, region, country, postal_code, is_default)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		a.UserID, a.Label, a.RecipientName, a.Phone, a.Line1, a.Line2, a.City, a.Region, a.Country, a.PostalCode, a.IsDefault)
+	if err != nil {
+		return 0, err
+	}
+	return res.LastInsertId()
+}
+
+func (r *Repository) UpdateAddressTx(ctx context.Context, tx *sqlx.Tx, a *Address) error {
+	_, err := tx.ExecContext(ctx,
+		`UPDATE addresses
+		    SET label = ?, recipient_name = ?, phone = ?, line1 = ?, line2 = ?, city = ?, region = ?, country = ?, postal_code = ?, is_default = ?
+		  WHERE id = ? AND user_id = ?`,
+		a.Label, a.RecipientName, a.Phone, a.Line1, a.Line2, a.City, a.Region, a.Country, a.PostalCode, a.IsDefault, a.ID, a.UserID)
+	return err
+}
+
+func (r *Repository) DeleteAddress(ctx context.Context, userID, id int64) error {
+	res, err := r.db.ExecContext(ctx, `DELETE FROM addresses WHERE id = ? AND user_id = ?`, id, userID)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return ErrAddressNotFound
+	}
+	return nil
 }
 
 // refreshRow is the subset of refresh_tokens we read back for validation.

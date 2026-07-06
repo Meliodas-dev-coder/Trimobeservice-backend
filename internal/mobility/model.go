@@ -127,11 +127,12 @@ type CarOverview struct {
 
 // CarFilter drives the car list query.
 type CarFilter struct {
-	CategoryID *int64
-	Search     string
-	Status     string // "" = any (admin); public forces "available"
-	Limit      int
-	Offset     int
+	CategoryID    *int64
+	Search        string
+	Status        string // "" = any (admin); public forces "available"
+	IncludeBooked bool   // with status=available, keep cars booked today in the list
+	Limit         int
+	Offset        int
 }
 
 // --- request DTOs ---

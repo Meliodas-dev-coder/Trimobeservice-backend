@@ -378,6 +378,8 @@ func (h *Handler) listProducts(w http.ResponseWriter, r *http.Request, publicOnl
 			f.BrandID = &id
 		}
 	}
+	f.TemplateKey = q.Get("template_key")
+	f.ExcludeTemplateKey = q.Get("exclude_template_key")
 
 	items, total, err := h.svc.ListProducts(r.Context(), f)
 	if err != nil {

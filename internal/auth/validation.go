@@ -30,3 +30,23 @@ func validateLogin(req LoginRequest) map[string]string {
 	}
 	return problems
 }
+
+func validateAddress(req AddressRequest) map[string]string {
+	problems := map[string]string{}
+	if strings.TrimSpace(req.RecipientName) == "" {
+		problems["recipient_name"] = "is required"
+	}
+	if strings.TrimSpace(req.Phone) == "" {
+		problems["phone"] = "is required"
+	}
+	if strings.TrimSpace(req.Line1) == "" {
+		problems["line1"] = "is required"
+	}
+	if strings.TrimSpace(req.City) == "" {
+		problems["city"] = "is required"
+	}
+	if strings.TrimSpace(req.Country) == "" {
+		problems["country"] = "is required"
+	}
+	return problems
+}

@@ -3,6 +3,9 @@ package auth
 import (
 	"errors"
 	"net/http"
+	"strconv"
+
+	"github.com/go-chi/chi/v5"
 
 	"github.com/trimo/backend/internal/httpx"
 )
@@ -112,4 +115,107 @@ func (h *Handler) Me(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httpx.JSON(w, http.StatusOK, httpx.Envelope{"user": toUserResponse(u)})
+}
+
+func (h *Handler) ListAddresses(w http.ResponseWriter, r *http.Request) {
+	userID, ok := userIDFromRequest(w, r)
+	if !ok {
+		return
+	}
+	addresses, err := h.svc.ListAddresses(r.Context(), userID)
+	if err != nil {
+		httpx.Error(w, http.StatusInternalServerError, "could not load addresses")
+		return
+	}
+	httpx.JSON(w, http.StatusOK, httpx.Envelope{"addresses": addresses})
+}
+
+func (h *Handler) CreateAddress(w http.ResponseWriter, r *http.Request) {
+	userID, ok := userIDFromRequest(w, r)
+	if !ok {
+		return
+	}
+	var req AddressRequest
+	if err := httpx.DecodeJSON(w, r, &req); err != nil {
+		httpx.Error(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if problems := validateAddress(req); len(problems) > 0 {
+		httpx.ValidationError(w, problems)
+		return
+	}
+	address, err := h.svc.CreateAddress(r.Context(), userID, req)
+	if err != nil {
+		httpx.Error(w, http.StatusInternalServerError, "could not save address")
+		return
+	}
+	httpx.JSON(w, http.StatusCreated, httpx.Envelope{"address": address})
+}
+
+func (h *Handler) UpdateAddress(w http.ResponseWriter, r *http.Request) {
+	userID, ok := userIDFromRequest(w, r)
+	if !ok {
+		return
+	}
+	addressID, ok := addressIDParam(w, r)
+	if !ok {
+		return
+	}
+	var req AddressRequest
+	if err := httpx.DecodeJSON(w, r, &req); err != nil {
+		httpx.Error(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if problems := validateAddress(req); len(problems) > 0 {
+		httpx.ValidationError(w, problems)
+		return
+	}
+	address, err := h.svc.UpdateAddress(r.Context(), userID, addressID, req)
+	if err != nil {
+		if errors.Is(err, ErrAddressNotFound) {
+			httpx.Error(w, http.StatusNotFound, err.Error())
+			return
+		}
+		httpx.Error(w, http.StatusInternalServerError, "could not save address")
+		return
+	}
+	httpx.JSON(w, http.StatusOK, httpx.Envelope{"address": address})
+}
+
+func (h *Handler) DeleteAddress(w http.ResponseWriter, r *http.Request) {
+	userID, ok := userIDFromRequest(w, r)
+	if !ok {
+		return
+	}
+	addressID, ok := addressIDParam(w, r)
+	if !ok {
+		return
+	}
+	if err := h.svc.DeleteAddress(r.Context(), userID, addressID); err != nil {
+		if errors.Is(err, ErrAddressNotFound) {
+			httpx.Error(w, http.StatusNotFound, err.Error())
+			return
+		}
+		httpx.Error(w, http.StatusInternalServerError, "could not delete address")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func userIDFromRequest(w http.ResponseWriter, r *http.Request) (int64, bool) {
+	userID, ok := UserIDFromContext(r.Context())
+	if !ok {
+		httpx.Error(w, http.StatusUnauthorized, "unauthenticated")
+		return 0, false
+	}
+	return userID, true
+}
+
+func addressIDParam(w http.ResponseWriter, r *http.Request) (int64, bool) {
+	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil || id <= 0 {
+		httpx.Error(w, http.StatusBadRequest, "invalid id")
+		return 0, false
+	}
+	return id, true
 }

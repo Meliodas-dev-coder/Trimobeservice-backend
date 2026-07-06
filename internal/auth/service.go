@@ -5,6 +5,8 @@ import (
 	"errors"
 	"strings"
 	"time"
+
+	"github.com/jmoiron/sqlx"
 )
 
 var (
@@ -136,6 +138,67 @@ func (s *Service) Me(ctx context.Context, userID int64) (*User, error) {
 	return s.repo.GetByID(ctx, userID)
 }
 
+func (s *Service) ListAddresses(ctx context.Context, userID int64) ([]Address, error) {
+	return s.repo.ListAddresses(ctx, userID)
+}
+
+func (s *Service) CreateAddress(ctx context.Context, userID int64, req AddressRequest) (*Address, error) {
+	a := addressFromRequest(userID, 0, req)
+	err := s.repo.InTx(ctx, func(tx *sqlx.Tx) error {
+		total, err := s.repo.CountAddresses(ctx, tx, userID)
+		if err != nil {
+			return err
+		}
+		if total == 0 || a.IsDefault {
+			a.IsDefault = true
+			if err := s.repo.ClearDefaultAddresses(ctx, tx, userID); err != nil {
+				return err
+			}
+		}
+		id, err := s.repo.CreateAddressTx(ctx, tx, a)
+		if err != nil {
+			return err
+		}
+		a.ID = id
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	address, err := s.repo.GetAddress(ctx, s.repo.db, userID, a.ID)
+	if err != nil {
+		return nil, err
+	}
+	return address, nil
+}
+
+func (s *Service) UpdateAddress(ctx context.Context, userID, id int64, req AddressRequest) (*Address, error) {
+	a := addressFromRequest(userID, id, req)
+	err := s.repo.InTx(ctx, func(tx *sqlx.Tx) error {
+		existing, err := s.repo.GetAddress(ctx, tx, userID, id)
+		if err != nil {
+			return err
+		}
+		if req.IsDefault == nil {
+			a.IsDefault = existing.IsDefault
+		}
+		if a.IsDefault {
+			if err := s.repo.ClearDefaultAddresses(ctx, tx, userID); err != nil {
+				return err
+			}
+		}
+		return s.repo.UpdateAddressTx(ctx, tx, a)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return s.repo.GetAddress(ctx, s.repo.db, userID, id)
+}
+
+func (s *Service) DeleteAddress(ctx context.Context, userID, id int64) error {
+	return s.repo.DeleteAddress(ctx, userID, id)
+}
+
 func (s *Service) issueTokens(ctx context.Context, u *User, meta sessionMeta) (*TokenPair, error) {
 	access, accessExp, err := s.tokens.GenerateAccess(u.ID, u.Role)
 	if err != nil {
@@ -159,4 +222,36 @@ func (s *Service) issueTokens(ctx context.Context, u *User, meta sessionMeta) (*
 
 func normalizeEmail(email string) string {
 	return strings.ToLower(strings.TrimSpace(email))
+}
+
+func addressFromRequest(userID, id int64, req AddressRequest) *Address {
+	defaultCountry := strings.TrimSpace(req.Country)
+	if defaultCountry == "" {
+		defaultCountry = "Madagascar"
+	}
+	return &Address{
+		ID:            id,
+		UserID:        userID,
+		Label:         cleanOptional(req.Label),
+		RecipientName: strings.TrimSpace(req.RecipientName),
+		Phone:         strings.TrimSpace(req.Phone),
+		Line1:         strings.TrimSpace(req.Line1),
+		Line2:         cleanOptional(req.Line2),
+		City:          strings.TrimSpace(req.City),
+		Region:        cleanOptional(req.Region),
+		Country:       defaultCountry,
+		PostalCode:    cleanOptional(req.PostalCode),
+		IsDefault:     req.IsDefault != nil && *req.IsDefault,
+	}
+}
+
+func cleanOptional(value *string) *string {
+	if value == nil {
+		return nil
+	}
+	cleaned := strings.TrimSpace(*value)
+	if cleaned == "" {
+		return nil
+	}
+	return &cleaned
 }

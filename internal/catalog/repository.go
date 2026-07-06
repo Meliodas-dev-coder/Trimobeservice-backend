@@ -217,6 +217,14 @@ func (r *Repository) ListProducts(ctx context.Context, f ProductFilter) ([]Produ
 		where = append(where, "brand_id = ?")
 		args = append(args, *f.BrandID)
 	}
+	if f.TemplateKey != "" {
+		where = append(where, "EXISTS (SELECT 1 FROM product_categories pc WHERE pc.id = products.category_id AND pc.template_key = ?)")
+		args = append(args, f.TemplateKey)
+	}
+	if f.ExcludeTemplateKey != "" {
+		where = append(where, "NOT EXISTS (SELECT 1 FROM product_categories pc WHERE pc.id = products.category_id AND pc.template_key = ?)")
+		args = append(args, f.ExcludeTemplateKey)
+	}
 	if f.Search != "" {
 		where = append(where, "name LIKE ?")
 		args = append(args, "%"+f.Search+"%")

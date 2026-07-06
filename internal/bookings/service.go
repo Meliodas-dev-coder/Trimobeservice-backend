@@ -56,6 +56,15 @@ func (s *Service) CheckAvailability(ctx context.Context, carID int64, start, end
 	return &AvailabilityResult{CarID: carID, StartAt: start, EndAt: end, Available: available}, nil
 }
 
+// BookedRanges lists a car's current and upcoming occupied windows (read-only),
+// so clients can disable those dates up front instead of failing on submit.
+func (s *Service) BookedRanges(ctx context.Context, carID int64) ([]BookedRange, error) {
+	if _, err := s.repo.GetCar(ctx, carID); err != nil {
+		return nil, err
+	}
+	return s.repo.ListOccupiedRanges(ctx, carID, time.Now())
+}
+
 // Create books a car for a date range. It locks the car row, verifies the car
 // is available and free, snapshots the rate, and inserts a confirmed booking —
 // all in one transaction. The DB trigger is the backstop against overlaps.

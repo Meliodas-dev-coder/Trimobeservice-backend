@@ -189,8 +189,20 @@ func (s *Service) Checkout(ctx context.Context, userID int64, req CheckoutReques
 
 		shipping := int64(0) // flat/no shipping fee for now
 		now := time.Now()
+		customerNameSnapshot, err := s.repo.CustomerName(ctx, tx, userID)
+		if err != nil {
+			return err
+		}
+		if customerNameSnapshot != nil {
+			name := strings.TrimSpace(*customerNameSnapshot)
+			customerNameSnapshot = nil
+			if name != "" {
+				customerNameSnapshot = &name
+			}
+		}
 		order := &Order{
 			UserID:          &userID,
+			CustomerName:    customerNameSnapshot,
 			OrderNumber:     newOrderNumber(),
 			FulfillmentType: req.FulfillmentType,
 			Status:          StatusPending,

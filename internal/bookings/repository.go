@@ -187,6 +187,19 @@ func (r *Repository) CarOverlaps(ctx context.Context, carID, excludeID int64, st
 	return r.HasCarOverlap(ctx, r.db, carID, excludeID, start, end)
 }
 
+// ListOccupiedRanges returns the occupying booking windows for a car that end
+// after `from`, ordered by start. The status set must mirror the DB triggers.
+func (r *Repository) ListOccupiedRanges(ctx context.Context, carID int64, from time.Time) ([]BookedRange, error) {
+	out := []BookedRange{}
+	err := r.db.SelectContext(ctx, &out,
+		`SELECT start_at, end_at FROM bookings
+		 WHERE car_id = ?
+		   AND status IN ('confirmed','driver_assigned','active')
+		   AND end_at > ?
+		 ORDER BY start_at`, carID, from)
+	return out, err
+}
+
 func (r *Repository) SetStatus(ctx context.Context, id int64, status string) error {
 	res, err := r.db.ExecContext(ctx, `UPDATE bookings SET status = ? WHERE id = ?`, status, id)
 	if err != nil {

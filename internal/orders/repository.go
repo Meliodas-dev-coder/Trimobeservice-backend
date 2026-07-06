@@ -15,6 +15,7 @@ var (
 	ErrCartItemNotFound = errors.New("cart item not found")
 	ErrOrderNotFound    = errors.New("order not found")
 	ErrVariantMissing   = errors.New("variant not found")
+	ErrCustomerMissing  = errors.New("customer not found")
 )
 
 type Repository struct {
@@ -243,9 +244,23 @@ func (r *Repository) SetOrderStatusTx(ctx context.Context, tx *sqlx.Tx, orderID 
 	return err
 }
 
+func (r *Repository) CustomerName(ctx context.Context, q sqlx.QueryerContext, userID int64) (*string, error) {
+	var name string
+	err := sqlx.GetContext(ctx, q, &name, `SELECT full_name FROM users WHERE id = ? AND role = 'customer'`, userID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrCustomerMissing
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &name, nil
+}
+
 // --- order reads / simple writes ---
 
-const orderCols = `id, user_id, customer_name, order_number, fulfillment_type, status, payment_status,
+const orderCols = `id, user_id,
+	COALESCE(customer_name, (SELECT full_name FROM users u WHERE u.id = orders.user_id)) AS customer_name,
+	order_number, fulfillment_type, status, payment_status,
 	subtotal, shipping_fee, total, reserved_until,
 	ship_recipient_name, ship_phone, ship_line1, ship_line2, ship_city, ship_region, ship_country, ship_postal_code,
 	note, placed_at, paid_at, created_at, updated_at`

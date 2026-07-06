@@ -73,7 +73,7 @@ type CartView struct {
 type Order struct {
 	ID                int64      `db:"id" json:"id"`
 	UserID            *int64     `db:"user_id" json:"user_id,omitempty"`             // nil for admin walk-in orders
-	CustomerName      *string    `db:"customer_name" json:"customer_name,omitempty"` // set for walk-in orders
+	CustomerName      *string    `db:"customer_name" json:"customer_name,omitempty"` // account or walk-in name snapshot
 	OrderNumber       string     `db:"order_number" json:"order_number"`
 	FulfillmentType   string     `db:"fulfillment_type" json:"fulfillment_type"`
 	Status            string     `db:"status" json:"status"`

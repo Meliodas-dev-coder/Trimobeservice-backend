@@ -12,4 +12,12 @@ func RegisterRoutes(r chi.Router, h *Handler, mw *Middleware) {
 		r.Post("/logout", h.Logout)
 		r.With(mw.RequireAuth).Get("/me", h.Me)
 	})
+
+	r.Group(func(r chi.Router) {
+		r.Use(mw.RequireAuth)
+		r.Get("/account/addresses", h.ListAddresses)
+		r.Post("/account/addresses", h.CreateAddress)
+		r.Put("/account/addresses/{id}", h.UpdateAddress)
+		r.Delete("/account/addresses/{id}", h.DeleteAddress)
+	})
 }

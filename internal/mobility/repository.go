@@ -134,7 +134,11 @@ func (r *Repository) ListCars(ctx context.Context, f CarFilter) ([]Car, int, err
 	if f.Status != "" {
 		switch f.Status {
 		case CarStatusAvailable:
-			where = append(where, "cars.status = ? AND NOT "+carBookedTodayExpr)
+			if f.IncludeBooked {
+				where = append(where, "cars.status = ?")
+			} else {
+				where = append(where, "cars.status = ? AND NOT "+carBookedTodayExpr)
+			}
 			args = append(args, CarStatusAvailable)
 		case CarStatusNotAvailable:
 			where = append(where, "cars.status = ? AND "+carBookedTodayExpr)

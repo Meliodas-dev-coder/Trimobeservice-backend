@@ -75,6 +75,153 @@ func (r *Repository) GetBookingInfo(ctx context.Context, id int64) (*targetInfo,
 	return &t, nil
 }
 
+func (r *Repository) GetEventInfo(ctx context.Context, id int64) (*targetInfo, error) {
+	var t targetInfo
+	// quoted_price is NULL until an admin sets a quote; expose that as "" so the
+	// service can reject payment on an unquoted event.
+	err := r.db.GetContext(ctx, &t,
+		`SELECT status, payment_status, COALESCE(quoted_price, '') AS total FROM event_requests WHERE id = ?`, id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrTargetNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &t, nil
+}
+
+func (r *Repository) GetTarget(ctx context.Context, payableType string, id int64) (*PaymentTarget, error) {
+	switch payableType {
+	case PayableOrder:
+		target, err := r.getOrderTarget(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		items, err := r.listOrderTargetItems(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		target.Items = items
+		return target, nil
+	case PayableBooking:
+		return r.getBookingTarget(ctx, id)
+	case PayableEvent:
+		return r.getEventTarget(ctx, id)
+	default:
+		return nil, ErrTargetNotFound
+	}
+}
+
+func (r *Repository) getOrderTarget(ctx context.Context, id int64) (*PaymentTarget, error) {
+	var target PaymentTarget
+	err := r.db.GetContext(ctx, &target,
+		`SELECT
+			'order' AS target_type,
+			id,
+			user_id,
+			COALESCE(customer_name, (SELECT full_name FROM users u WHERE u.id = orders.user_id)) AS customer_name,
+			order_number AS number,
+			status,
+			payment_status,
+			total,
+			fulfillment_type,
+			NULL AS car_name,
+			NULL AS car_category,
+			NULL AS start_at,
+			NULL AS end_at,
+			NULL AS pickup_location,
+			NULL AS dropoff_location,
+			ship_phone AS contact_phone,
+			created_at
+		   FROM orders
+		  WHERE id = ?`, id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrTargetNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &target, nil
+}
+
+func (r *Repository) getBookingTarget(ctx context.Context, id int64) (*PaymentTarget, error) {
+	var target PaymentTarget
+	err := r.db.GetContext(ctx, &target,
+		`SELECT
+			'booking' AS target_type,
+			id,
+			user_id,
+			COALESCE(customer_name, (SELECT full_name FROM users u WHERE u.id = bookings.user_id)) AS customer_name,
+			booking_number AS number,
+			status,
+			payment_status,
+			total_price AS total,
+			NULL AS fulfillment_type,
+			car_name,
+			car_category,
+			start_at,
+			end_at,
+			pickup_location,
+			dropoff_location,
+			contact_phone,
+			created_at
+		   FROM bookings
+		  WHERE id = ?`, id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrTargetNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &target, nil
+}
+
+func (r *Repository) getEventTarget(ctx context.Context, id int64) (*PaymentTarget, error) {
+	var target PaymentTarget
+	err := r.db.GetContext(ctx, &target,
+		`SELECT
+			'event' AS target_type,
+			id,
+			user_id,
+			COALESCE(customer_name, (SELECT full_name FROM users u WHERE u.id = event_requests.user_id)) AS customer_name,
+			request_number AS number,
+			status,
+			payment_status,
+			COALESCE(quoted_price, 0) AS total,
+			NULL AS fulfillment_type,
+			NULL AS car_name,
+			NULL AS car_category,
+			event_type,
+			event_start AS start_at,
+			event_end AS end_at,
+			location AS pickup_location,
+			NULL AS dropoff_location,
+			contact_phone,
+			created_at
+		   FROM event_requests
+		  WHERE id = ?`, id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrTargetNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &target, nil
+}
+
+func (r *Repository) listOrderTargetItems(ctx context.Context, orderID int64) ([]PaymentTargetItem, error) {
+	out := []PaymentTargetItem{}
+	err := r.db.SelectContext(ctx, &out,
+		`SELECT id, product_name, variant_label, sku, unit_price, quantity, line_total
+		   FROM order_items
+		  WHERE order_id = ?
+		  ORDER BY id`, orderID)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // --- writes (transaction-scoped) ---
 
 func (r *Repository) InsertPaymentTx(ctx context.Context, tx *sqlx.Tx, p *Payment) (int64, error) {
@@ -101,6 +248,15 @@ func (r *Repository) SetBookingPaymentTx(ctx context.Context, tx *sqlx.Tx, id in
 	q := `UPDATE bookings SET payment_status = ? WHERE id = ?`
 	if status == targetPaid {
 		q = `UPDATE bookings SET payment_status = ?, paid_at = NOW() WHERE id = ?`
+	}
+	_, err := tx.ExecContext(ctx, q, status, id)
+	return err
+}
+
+func (r *Repository) SetEventPaymentTx(ctx context.Context, tx *sqlx.Tx, id int64, status string) error {
+	q := `UPDATE event_requests SET payment_status = ? WHERE id = ?`
+	if status == targetPaid {
+		q = `UPDATE event_requests SET payment_status = ?, paid_at = NOW() WHERE id = ?`
 	}
 	_, err := tx.ExecContext(ctx, q, status, id)
 	return err

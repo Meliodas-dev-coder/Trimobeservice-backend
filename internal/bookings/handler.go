@@ -48,6 +48,21 @@ func (h *Handler) CheckAvailability(w http.ResponseWriter, r *http.Request) {
 	httpx.JSON(w, http.StatusOK, httpx.Envelope{"availability": res})
 }
 
+// BookedRanges: GET /availability/ranges?car_id=
+func (h *Handler) BookedRanges(w http.ResponseWriter, r *http.Request) {
+	carID, err := strconv.ParseInt(r.URL.Query().Get("car_id"), 10, 64)
+	if err != nil || carID <= 0 {
+		httpx.Error(w, http.StatusBadRequest, "car_id is required")
+		return
+	}
+	ranges, err := h.svc.BookedRanges(r.Context(), carID)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	httpx.JSON(w, http.StatusOK, httpx.Envelope{"car_id": carID, "booked_ranges": ranges})
+}
+
 // ===================== client: bookings =====================
 
 func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {

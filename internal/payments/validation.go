@@ -16,8 +16,8 @@ var validMethods = map[string]bool{
 
 func validateRecord(req RecordPaymentRequest) map[string]string {
 	p := map[string]string{}
-	if req.PayableType != PayableOrder && req.PayableType != PayableBooking {
-		p["payable_type"] = "must be 'order' or 'booking'"
+	if req.PayableType != PayableOrder && req.PayableType != PayableBooking && req.PayableType != PayableEvent {
+		p["payable_type"] = "must be 'order', 'booking', or 'event'"
 	}
 	if req.PayableID <= 0 {
 		p["payable_id"] = "is required"

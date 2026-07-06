@@ -92,12 +92,14 @@ type ProductDetail struct {
 
 // ProductFilter drives the product list query.
 type ProductFilter struct {
-	CategoryID *int64
-	BrandID    *int64
-	Search     string
-	ActiveOnly bool
-	Limit      int
-	Offset     int
+	CategoryID         *int64
+	BrandID            *int64
+	TemplateKey        string
+	ExcludeTemplateKey string
+	Search             string
+	ActiveOnly         bool
+	Limit              int
+	Offset             int
 }
 
 // --- request DTOs ---

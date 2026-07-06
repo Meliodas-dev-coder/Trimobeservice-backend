@@ -30,7 +30,7 @@ func (h *Handler) ListCategoriesPublic(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) ListCarsPublic(w http.ResponseWriter, r *http.Request) {
-	h.listCars(w, r, CarStatusAvailable)
+	h.listCars(w, r, CarStatusAvailable, true)
 }
 
 func (h *Handler) GetCarPublic(w http.ResponseWriter, r *http.Request) {
@@ -106,7 +106,7 @@ func (h *Handler) DeleteCategory(w http.ResponseWriter, r *http.Request) {
 // ===================== admin: cars =====================
 
 func (h *Handler) ListCarsAdmin(w http.ResponseWriter, r *http.Request) {
-	h.listCars(w, r, r.URL.Query().Get("status"))
+	h.listCars(w, r, r.URL.Query().Get("status"), false)
 }
 
 func (h *Handler) GetCarAdmin(w http.ResponseWriter, r *http.Request) {
@@ -300,14 +300,15 @@ func (h *Handler) DeleteDriver(w http.ResponseWriter, r *http.Request) {
 
 // ===================== shared helpers =====================
 
-func (h *Handler) listCars(w http.ResponseWriter, r *http.Request, status string) {
+func (h *Handler) listCars(w http.ResponseWriter, r *http.Request, status string, includeBooked bool) {
 	q := r.URL.Query()
 	limit, page := parsePage(r)
 	f := CarFilter{
-		Search: q.Get("q"),
-		Status: status,
-		Limit:  limit,
-		Offset: (page - 1) * limit,
+		Search:        q.Get("q"),
+		Status:        status,
+		IncludeBooked: includeBooked,
+		Limit:         limit,
+		Offset:        (page - 1) * limit,
 	}
 	if v := q.Get("category_id"); v != "" {
 		if id, err := strconv.ParseInt(v, 10, 64); err == nil {

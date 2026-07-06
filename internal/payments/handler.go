@@ -135,6 +135,7 @@ func writeError(w http.ResponseWriter, err error) {
 	case errors.Is(err, ErrAlreadyPaid),
 		errors.Is(err, ErrTargetClosed),
 		errors.Is(err, ErrOrderNotFulfilled),
+		errors.Is(err, ErrEventNotQuoted),
 		errors.Is(err, ErrNotRefundable):
 		httpx.Error(w, http.StatusConflict, err.Error())
 	case errors.Is(err, ErrInvalidPayable):
