@@ -21,16 +21,20 @@ MySQL 8.0+ schema for the Trimo multiservice platform, written for
 | 000011 | `product_templates` | `product_categories.template_key`, `products.attributes` (JSON), `product_facets` |
 | 000012 | `admin_manual_orders` | nullable `orders.user_id` + `orders.customer_name` (phone/walk-in orders) |
 | 000013 | `event_planning` | `event_service_categories`, `event_services`, `event_requests`, `event_request_services` |
+| 000014 | `event_artists` | `artists` and `event_request_artists` (bookable gospel artists) |
+| 000015 | `brand_departments` | `brands.department` (tech/fashion split for the catalog) |
+| 000016 | `healthcare` | `practitioners`, `healthcare_service_categories`, `healthcare_services`, `healthcare_package_staff`, `healthcare_requests`, `healthcare_request_assignments`, `healthcare_settings`; extends `payments.payable_type` with `healthcare` |
 
 They must apply in order — later migrations reference earlier tables via
 foreign keys.
 
 ## Design notes
 
-- **Three domains, shared users.** Phones (e-commerce), cars (time-based
-  rental with driver), and event planning (service requests) are separate
-  module trees that share `users`, auth, and `payments`. Each follows the same
-  shape: **Category → Item → Transaction**.
+- **Four domains, shared users.** Phones (e-commerce), cars (time-based
+  rental with driver), event planning (service requests), and healthcare (home
+  consultations + care packages) are separate module trees that share `users`,
+  auth, and `payments`. Each follows the same shape: **Category → Item →
+  Transaction**.
 - **Price snapshots.** `order_items` and `bookings` freeze the price agreed at
   purchase/booking time. Changing a product/car rate later never alters
   historical records.
@@ -48,12 +52,26 @@ foreign keys.
   which spec fields a product/variant carries in `attributes`. Filterable specs
   are denormalised into `product_facets` on every product/variant write for fast
   storefront faceting.
+- **Departments (tech vs fashion).** Each product template belongs to a
+  department (defined in Go). A category inherits its department from its
+  template, and a product from its category — so categories/products are filtered
+  by department without a stored column. Brands have no template link, so they
+  carry their own `brands.department`. The admin and storefront use this to keep
+  tech (phones/laptops/accessories…) and fashion (clothing/footwear) in separate
+  sections.
 - **No double-booking.** Enforced in two layers: the application must check
   availability inside the booking transaction with `SELECT ... FOR UPDATE`, and
   the triggers in 000007 are the DB-level safety net.
 - **Manual payments.** `payments` records what an admin confirms (cash / bank
-  transfer / mobile money) for orders, bookings, and quoted event requests.
-  Adding a real gateway later is just a new `method`.
+  transfer / mobile money) for orders, bookings, quoted event requests, and
+  healthcare requests. Adding a real gateway later is just a new `method`.
+- **Healthcare (home care).** A doctor/nurse `practitioners` roster (like
+  `drivers`) is assigned to `healthcare_requests`. A request is either a
+  quote-priced **consultation** or a fixed-price **package** whose staff makeup
+  lives in `healthcare_package_staff`; assignments are snapshotted in
+  `healthcare_request_assignments`. Practitioner overlap is enforced softly in
+  the app (a warning), not by a DB trigger. The emergency contact shown on the
+  client page is a single editable row in `healthcare_settings`.
 
 ## Running
 

@@ -7,9 +7,10 @@ import "time"
 
 // Payable targets.
 const (
-	PayableOrder   = "order"
-	PayableBooking = "booking"
-	PayableEvent   = "event"
+	PayableOrder      = "order"
+	PayableBooking    = "booking"
+	PayableEvent      = "event"
+	PayableHealthcare = "healthcare"
 )
 
 // Payment methods.
@@ -37,6 +38,8 @@ const (
 	bookingCancelled = "cancelled"
 
 	eventCancelled = "cancelled"
+
+	healthcareCancelled = "cancelled"
 
 	targetPaid = "paid"
 )

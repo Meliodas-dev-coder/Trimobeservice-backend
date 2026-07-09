@@ -71,7 +71,12 @@ func Load() (*Config, error) {
 			WriteTimeout:    getDur("HTTP_WRITE_TIMEOUT", 15*time.Second),
 			IdleTimeout:     getDur("HTTP_IDLE_TIMEOUT", 60*time.Second),
 			ShutdownTimeout: getDur("HTTP_SHUTDOWN_TIMEOUT", 10*time.Second),
-			CORSOrigins:     getList("CORS_ALLOWED_ORIGINS", []string{"http://localhost:5173", "http://localhost:5174"}),
+			CORSOrigins: getList("CORS_ALLOWED_ORIGINS", []string{
+				"http://localhost:5173",
+				"http://localhost:5174",
+				"http://localhost",
+				"capacitor://localhost",
+			}),
 		},
 		DB: DBConfig{
 			Host:            getStr("DB_HOST", "127.0.0.1"),

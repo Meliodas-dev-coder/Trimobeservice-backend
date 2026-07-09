@@ -21,6 +21,49 @@ const (
 // DefaultTemplateKey is assigned to categories that don't pick a type.
 const DefaultTemplateKey = "generic"
 
+// Departments group product types into separate back-office and storefront
+// sections (tech vs fashion). Every template belongs to exactly one department;
+// categories inherit it from their template, products from their category.
+const (
+	DepartmentTech    = "tech"
+	DepartmentFashion = "fashion"
+)
+
+// Department is a storefront/back-office grouping of product types.
+type Department struct {
+	Key   string `json:"key"`
+	Label string `json:"label"`
+}
+
+var departments = []Department{
+	{Key: DepartmentTech, Label: "Tech"},
+	{Key: DepartmentFashion, Label: "Fashion"},
+}
+
+// Departments returns all departments in display order.
+func Departments() []Department { return departments }
+
+// IsValidDepartment reports whether key names a known department.
+func IsValidDepartment(key string) bool {
+	for _, d := range departments {
+		if d.Key == key {
+			return true
+		}
+	}
+	return false
+}
+
+// TemplateKeysForDepartment returns the template keys that belong to a department.
+func TemplateKeysForDepartment(dept string) []string {
+	var keys []string
+	for _, t := range productTemplates {
+		if t.Department == dept {
+			keys = append(keys, t.Key)
+		}
+	}
+	return keys
+}
+
 // TemplateField describes one dynamic attribute (a product spec or a variant axis).
 type TemplateField struct {
 	Key        string   `json:"key"`
@@ -37,14 +80,16 @@ type TemplateField struct {
 type ProductTemplate struct {
 	Key           string          `json:"key"`
 	Label         string          `json:"label"`
+	Department    string          `json:"department"`
 	ProductFields []TemplateField `json:"product_fields"`
 	VariantAxes   []TemplateField `json:"variant_axes"`
 }
 
 var productTemplates = []ProductTemplate{
 	{
-		Key:   "phone",
-		Label: "Phone",
+		Key:        "phone",
+		Label:      "Phone",
+		Department: DepartmentTech,
 		ProductFields: []TemplateField{
 			{Key: "model", Label: "Model", Type: FieldText},
 			{Key: "screen_size", Label: "Screen size", Type: FieldNumber, Unit: "in", Filterable: true},
@@ -61,8 +106,9 @@ var productTemplates = []ProductTemplate{
 		},
 	},
 	{
-		Key:   "laptop",
-		Label: "Laptop",
+		Key:        "laptop",
+		Label:      "Laptop",
+		Department: DepartmentTech,
 		ProductFields: []TemplateField{
 			{Key: "cpu", Label: "CPU", Type: FieldText, Filterable: true},
 			{Key: "gpu", Label: "GPU", Type: FieldText},
@@ -77,8 +123,9 @@ var productTemplates = []ProductTemplate{
 		},
 	},
 	{
-		Key:   "tablet",
-		Label: "Tablet",
+		Key:        "tablet",
+		Label:      "Tablet",
+		Department: DepartmentTech,
 		ProductFields: []TemplateField{
 			{Key: "screen_size", Label: "Screen size", Type: FieldNumber, Unit: "in", Filterable: true},
 			{Key: "chipset", Label: "Chipset", Type: FieldText},
@@ -92,8 +139,9 @@ var productTemplates = []ProductTemplate{
 		},
 	},
 	{
-		Key:   "audio",
-		Label: "Audio",
+		Key:        "audio",
+		Label:      "Audio",
+		Department: DepartmentTech,
 		ProductFields: []TemplateField{
 			{Key: "form", Label: "Form", Type: FieldSelect, Options: []string{"In-ear", "On-ear", "Over-ear"}, Filterable: true},
 			{Key: "wireless", Label: "Wireless", Type: FieldBool, Filterable: true},
@@ -105,8 +153,9 @@ var productTemplates = []ProductTemplate{
 		},
 	},
 	{
-		Key:   "accessory",
-		Label: "Accessory",
+		Key:        "accessory",
+		Label:      "Accessory",
+		Department: DepartmentTech,
 		ProductFields: []TemplateField{
 			{Key: "connector", Label: "Connector", Type: FieldSelect, Options: []string{"USB-C", "Lightning", "USB-A", "Micro-USB", "Wireless"}, Filterable: true},
 			{Key: "wattage", Label: "Wattage", Type: FieldNumber, Unit: "W", Filterable: true},
@@ -117,8 +166,41 @@ var productTemplates = []ProductTemplate{
 		},
 	},
 	{
+		Key:        "clothing",
+		Label:      "Clothing",
+		Department: DepartmentFashion,
+		ProductFields: []TemplateField{
+			{Key: "gender", Label: "Audience", Type: FieldSelect, Options: []string{"Men", "Women", "Unisex", "Kids"}, Filterable: true},
+			{Key: "material", Label: "Material", Type: FieldSelect, Options: []string{"Cotton", "Polyester", "Wool", "Denim", "Leather", "Linen", "Silk", "Blend"}, Filterable: true},
+			{Key: "fit", Label: "Fit", Type: FieldSelect, Options: []string{"Slim", "Regular", "Relaxed", "Oversized"}, Filterable: true},
+			{Key: "care", Label: "Care instructions", Type: FieldText},
+		},
+		// A sellable SKU is a size × color pair, each with its own price and stock.
+		// Size is free text so any scheme fits (XS–XXL, EU numbers, "One size").
+		VariantAxes: []TemplateField{
+			{Key: "size", Label: "Size", Type: FieldText, Filterable: true},
+			{Key: "color", Label: "Color", Type: FieldText, Filterable: true},
+		},
+	},
+	{
+		Key:        "footwear",
+		Label:      "Footwear",
+		Department: DepartmentFashion,
+		ProductFields: []TemplateField{
+			{Key: "gender", Label: "Audience", Type: FieldSelect, Options: []string{"Men", "Women", "Unisex", "Kids"}, Filterable: true},
+			{Key: "style", Label: "Style", Type: FieldSelect, Options: []string{"Sneakers", "Boots", "Sandals", "Formal", "Loafers", "Heels", "Flats"}, Filterable: true},
+			{Key: "material", Label: "Material", Type: FieldSelect, Options: []string{"Leather", "Suede", "Canvas", "Synthetic", "Mesh", "Rubber"}, Filterable: true},
+			{Key: "closure", Label: "Closure", Type: FieldSelect, Options: []string{"Laces", "Slip-on", "Velcro", "Buckle", "Zipper"}},
+		},
+		VariantAxes: []TemplateField{
+			{Key: "size", Label: "Size (EU)", Type: FieldText, Filterable: true},
+			{Key: "color", Label: "Color", Type: FieldText, Filterable: true},
+		},
+	},
+	{
 		Key:           "generic",
 		Label:         "Generic",
+		Department:    DepartmentTech,
 		ProductFields: []TemplateField{},
 		VariantAxes: []TemplateField{
 			{Key: "color", Label: "Color", Type: FieldText},

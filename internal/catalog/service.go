@@ -32,8 +32,28 @@ func NewService(repo *Repository, images ImageDeleter) *Service {
 
 // --- categories ---
 
-func (s *Service) ListCategories(ctx context.Context, activeOnly bool) ([]Category, error) {
-	return s.repo.ListCategories(ctx, activeOnly)
+// ListCategories returns categories, optionally scoped to a department. A
+// category's department is inherited from its product-type template, so the
+// filter keeps only categories whose template belongs to the department.
+func (s *Service) ListCategories(ctx context.Context, activeOnly bool, department string) ([]Category, error) {
+	cats, err := s.repo.ListCategories(ctx, activeOnly)
+	if err != nil {
+		return nil, err
+	}
+	if department == "" {
+		return cats, nil
+	}
+	allowed := map[string]bool{}
+	for _, k := range TemplateKeysForDepartment(department) {
+		allowed[k] = true
+	}
+	out := make([]Category, 0, len(cats))
+	for _, c := range cats {
+		if allowed[c.TemplateKey] {
+			out = append(out, c)
+		}
+	}
+	return out, nil
 }
 
 func (s *Service) CreateCategory(ctx context.Context, req CategoryRequest) (*Category, error) {
@@ -110,8 +130,8 @@ func (s *Service) DeleteCategory(ctx context.Context, id int64) error {
 
 // --- brands ---
 
-func (s *Service) ListBrands(ctx context.Context, activeOnly bool) ([]Brand, error) {
-	return s.repo.ListBrands(ctx, activeOnly)
+func (s *Service) ListBrands(ctx context.Context, activeOnly bool, department string) ([]Brand, error) {
+	return s.repo.ListBrands(ctx, activeOnly, department)
 }
 
 func (s *Service) CreateBrand(ctx context.Context, req BrandRequest) (*Brand, error) {
@@ -120,10 +140,11 @@ func (s *Service) CreateBrand(ctx context.Context, req BrandRequest) (*Brand, er
 		return nil, err
 	}
 	b := &Brand{
-		Name:     strings.TrimSpace(req.Name),
-		Slug:     slug,
-		LogoURL:  req.LogoURL,
-		IsActive: derefBool(req.IsActive, true),
+		Name:       strings.TrimSpace(req.Name),
+		Slug:       slug,
+		Department: departmentOrDefault(req.Department),
+		LogoURL:    req.LogoURL,
+		IsActive:   derefBool(req.IsActive, true),
 	}
 	id, err := s.repo.CreateBrand(ctx, b)
 	if err != nil {
@@ -143,6 +164,7 @@ func (s *Service) UpdateBrand(ctx context.Context, id int64, req BrandRequest) (
 	}
 	b.Name = strings.TrimSpace(req.Name)
 	b.Slug = slug
+	b.Department = departmentOrDefault(req.Department)
 	b.LogoURL = req.LogoURL
 	if req.IsActive != nil {
 		b.IsActive = *req.IsActive
@@ -554,6 +576,16 @@ func (s *Service) rebuildFacets(ctx context.Context, productID int64) error {
 		}
 	}
 	return s.repo.ReplaceProductFacets(ctx, productID, facets)
+}
+
+// departmentOrDefault normalizes a brand's department, defaulting to tech when
+// blank. Unknown values are rejected earlier by validateBrand.
+func departmentOrDefault(dept string) string {
+	dept = strings.TrimSpace(dept)
+	if dept == "" {
+		return DepartmentTech
+	}
+	return dept
 }
 
 // templateKeyOrProblem validates a category's requested product type, defaulting

@@ -21,7 +21,7 @@ func NewHandler(svc *Service) *Handler {
 // ===================== public (client) reads =====================
 
 func (h *Handler) ListCategoriesPublic(w http.ResponseWriter, r *http.Request) {
-	cats, err := h.svc.ListCategories(r.Context(), true)
+	cats, err := h.svc.ListCategories(r.Context(), true, departmentParam(r))
 	if err != nil {
 		writeError(w, err)
 		return
@@ -30,7 +30,7 @@ func (h *Handler) ListCategoriesPublic(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) ListBrandsPublic(w http.ResponseWriter, r *http.Request) {
-	brands, err := h.svc.ListBrands(r.Context(), true)
+	brands, err := h.svc.ListBrands(r.Context(), true, departmentParam(r))
 	if err != nil {
 		writeError(w, err)
 		return
@@ -53,15 +53,16 @@ func (h *Handler) GetProductPublic(w http.ResponseWriter, r *http.Request) {
 
 // ===================== admin: product templates =====================
 
-// ListTemplates returns the product-type registry the admin form renders from.
+// ListTemplates returns the product-type registry the admin form renders from,
+// plus the departments those types are grouped into.
 func (h *Handler) ListTemplates(w http.ResponseWriter, _ *http.Request) {
-	httpx.JSON(w, http.StatusOK, httpx.Envelope{"templates": Templates()})
+	httpx.JSON(w, http.StatusOK, httpx.Envelope{"templates": Templates(), "departments": Departments()})
 }
 
 // ===================== admin: categories =====================
 
 func (h *Handler) ListCategoriesAdmin(w http.ResponseWriter, r *http.Request) {
-	cats, err := h.svc.ListCategories(r.Context(), false)
+	cats, err := h.svc.ListCategories(r.Context(), false, departmentParam(r))
 	if err != nil {
 		writeError(w, err)
 		return
@@ -122,7 +123,7 @@ func (h *Handler) DeleteCategory(w http.ResponseWriter, r *http.Request) {
 // ===================== admin: brands =====================
 
 func (h *Handler) ListBrandsAdmin(w http.ResponseWriter, r *http.Request) {
-	brands, err := h.svc.ListBrands(r.Context(), false)
+	brands, err := h.svc.ListBrands(r.Context(), false, departmentParam(r))
 	if err != nil {
 		writeError(w, err)
 		return
@@ -380,6 +381,9 @@ func (h *Handler) listProducts(w http.ResponseWriter, r *http.Request, publicOnl
 	}
 	f.TemplateKey = q.Get("template_key")
 	f.ExcludeTemplateKey = q.Get("exclude_template_key")
+	if dept := departmentParam(r); dept != "" {
+		f.TemplateKeys = TemplateKeysForDepartment(dept)
+	}
 
 	items, total, err := h.svc.ListProducts(r.Context(), f)
 	if err != nil {
@@ -398,6 +402,16 @@ func decode(w http.ResponseWriter, r *http.Request, dst any) bool {
 		return false
 	}
 	return true
+}
+
+// departmentParam returns a validated `department` query filter, or "" when
+// absent or unknown (so a bad value never silently scopes to nothing).
+func departmentParam(r *http.Request) string {
+	d := r.URL.Query().Get("department")
+	if d != "" && IsValidDepartment(d) {
+		return d
+	}
+	return ""
 }
 
 func idParam(w http.ResponseWriter, r *http.Request) (int64, bool) {

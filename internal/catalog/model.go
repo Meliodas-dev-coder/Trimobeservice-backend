@@ -25,13 +25,14 @@ type Category struct {
 }
 
 type Brand struct {
-	ID        int64     `db:"id" json:"id"`
-	Name      string    `db:"name" json:"name"`
-	Slug      string    `db:"slug" json:"slug"`
-	LogoURL   *string   `db:"logo_url" json:"logo_url,omitempty"`
-	IsActive  bool      `db:"is_active" json:"is_active"`
-	CreatedAt time.Time `db:"created_at" json:"created_at"`
-	UpdatedAt time.Time `db:"updated_at" json:"updated_at"`
+	ID         int64     `db:"id" json:"id"`
+	Name       string    `db:"name" json:"name"`
+	Slug       string    `db:"slug" json:"slug"`
+	Department string    `db:"department" json:"department"`
+	LogoURL    *string   `db:"logo_url" json:"logo_url,omitempty"`
+	IsActive   bool      `db:"is_active" json:"is_active"`
+	CreatedAt  time.Time `db:"created_at" json:"created_at"`
+	UpdatedAt  time.Time `db:"updated_at" json:"updated_at"`
 }
 
 type Product struct {
@@ -96,6 +97,7 @@ type ProductFilter struct {
 	BrandID            *int64
 	TemplateKey        string
 	ExcludeTemplateKey string
+	TemplateKeys       []string // restrict to categories whose template is in this set (e.g. a department)
 	Search             string
 	ActiveOnly         bool
 	Limit              int
@@ -115,9 +117,10 @@ type CategoryRequest struct {
 }
 
 type BrandRequest struct {
-	Name     string  `json:"name"`
-	LogoURL  *string `json:"logo_url"`
-	IsActive *bool   `json:"is_active"`
+	Name       string  `json:"name"`
+	Department string  `json:"department"`
+	LogoURL    *string `json:"logo_url"`
+	IsActive   *bool   `json:"is_active"`
 }
 
 type ProductRequest struct {

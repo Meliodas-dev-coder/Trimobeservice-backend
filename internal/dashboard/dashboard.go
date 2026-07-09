@@ -1,8 +1,9 @@
 // Package dashboard is a read-only, admin-only aggregate over the whole system:
-// KPI counters, a 30-day paid-revenue series, status breakdowns for orders and
-// bookings, the paid-payment method mix, and the two "needs attention" queues.
-// Everything is computed in SQL so the admin home can render real numbers and
-// charts in a single request.
+// KPI counters, a 30-day paid-revenue series, status breakdowns for orders,
+// bookings, and healthcare requests, the paid-payment method mix, and the
+// "needs attention" queues (unpaid orders, bookings to confirm, healthcare
+// requests to review). Everything is computed in SQL so the admin home can
+// render real numbers and charts in a single request.
 package dashboard
 
 import (
@@ -17,27 +18,30 @@ const revenueDays = 30
 
 // Dashboard is the full payload the admin home screen renders from.
 type Dashboard struct {
-	KPIs             KPIs           `json:"kpis"`
-	RevenueSeries    []RevenuePoint `json:"revenue_series"`
-	OrdersByStatus   []StatusCount  `json:"orders_by_status"`
-	BookingsByStatus []StatusCount  `json:"bookings_by_status"`
-	PaymentMethods   []MethodTotal  `json:"payment_methods"`
-	Attention        Attention      `json:"attention"`
+	KPIs               KPIs           `json:"kpis"`
+	RevenueSeries      []RevenuePoint `json:"revenue_series"`
+	OrdersByStatus     []StatusCount  `json:"orders_by_status"`
+	BookingsByStatus   []StatusCount  `json:"bookings_by_status"`
+	HealthcareByStatus []StatusCount  `json:"healthcare_by_status"`
+	PaymentMethods     []MethodTotal  `json:"payment_methods"`
+	Attention          Attention      `json:"attention"`
 }
 
 type KPIs struct {
-	RevenueTotal      string `json:"revenue_total"`
-	RevenueMonth      string `json:"revenue_month"`
-	RevenuePrevMonth  string `json:"revenue_prev_month"`
-	OrdersTotal       int    `json:"orders_total"`
-	OrdersUnpaid      int    `json:"orders_unpaid"`
-	BookingsTotal     int    `json:"bookings_total"`
-	BookingsToConfirm int    `json:"bookings_to_confirm"`
-	CustomersTotal    int    `json:"customers_total"`
-	CustomersNewMonth int    `json:"customers_new_month"`
-	ProductsActive    int    `json:"products_active"`
-	CarsTotal         int    `json:"cars_total"`
-	CarsAvailable     int    `json:"cars_available"`
+	RevenueTotal       string `json:"revenue_total"`
+	RevenueMonth       string `json:"revenue_month"`
+	RevenuePrevMonth   string `json:"revenue_prev_month"`
+	OrdersTotal        int    `json:"orders_total"`
+	OrdersUnpaid       int    `json:"orders_unpaid"`
+	BookingsTotal      int    `json:"bookings_total"`
+	BookingsToConfirm  int    `json:"bookings_to_confirm"`
+	CustomersTotal     int    `json:"customers_total"`
+	CustomersNewMonth  int    `json:"customers_new_month"`
+	ProductsActive     int    `json:"products_active"`
+	CarsTotal          int    `json:"cars_total"`
+	CarsAvailable      int    `json:"cars_available"`
+	HealthcareTotal    int    `json:"healthcare_total"`
+	HealthcareToReview int    `json:"healthcare_to_review"`
 }
 
 // RevenuePoint is one day of confirmed (paid) revenue, split by source.
@@ -68,8 +72,9 @@ type AttentionItem struct {
 }
 
 type Attention struct {
-	UnpaidOrders      []AttentionItem `json:"unpaid_orders"`
-	BookingsToConfirm []AttentionItem `json:"bookings_to_confirm"`
+	UnpaidOrders       []AttentionItem `json:"unpaid_orders"`
+	BookingsToConfirm  []AttentionItem `json:"bookings_to_confirm"`
+	HealthcareToReview []AttentionItem `json:"healthcare_to_review"`
 }
 
 // dayRevenue is the raw per-day split returned by the revenue query.
@@ -109,6 +114,10 @@ func (r *Repository) Load(ctx context.Context) (*Dashboard, error) {
 		`SELECT status, COUNT(*) AS count FROM bookings GROUP BY status ORDER BY count DESC`); err != nil {
 		return nil, err
 	}
+	if err := r.db.SelectContext(ctx, &out.HealthcareByStatus,
+		`SELECT status, COUNT(*) AS count FROM healthcare_requests GROUP BY status ORDER BY count DESC`); err != nil {
+		return nil, err
+	}
 	if err := r.db.SelectContext(ctx, &out.PaymentMethods,
 		`SELECT method, COUNT(*) AS count, COALESCE(SUM(amount), 0) AS amount
 		   FROM payments WHERE status = 'paid' GROUP BY method ORDER BY amount DESC`); err != nil {
@@ -121,6 +130,9 @@ func (r *Repository) Load(ctx context.Context) (*Dashboard, error) {
 	if out.Attention.BookingsToConfirm, err = r.loadBookingsToConfirm(ctx); err != nil {
 		return nil, err
 	}
+	if out.Attention.HealthcareToReview, err = r.loadHealthcareToReview(ctx); err != nil {
+		return nil, err
+	}
 
 	// Ensure the JSON arrays are never null.
 	if out.OrdersByStatus == nil {
@@ -128,6 +140,9 @@ func (r *Repository) Load(ctx context.Context) (*Dashboard, error) {
 	}
 	if out.BookingsByStatus == nil {
 		out.BookingsByStatus = []StatusCount{}
+	}
+	if out.HealthcareByStatus == nil {
+		out.HealthcareByStatus = []StatusCount{}
 	}
 	if out.PaymentMethods == nil {
 		out.PaymentMethods = []MethodTotal{}
@@ -170,6 +185,8 @@ func (r *Repository) loadKPIs(ctx context.Context, k *KPIs) error {
 		{&k.ProductsActive, `SELECT COUNT(*) FROM products WHERE is_active = 1`, nil},
 		{&k.CarsTotal, `SELECT COUNT(*) FROM cars`, nil},
 		{&k.CarsAvailable, `SELECT COUNT(*) FROM cars WHERE status = 'available'`, nil},
+		{&k.HealthcareTotal, `SELECT COUNT(*) FROM healthcare_requests`, nil},
+		{&k.HealthcareToReview, `SELECT COUNT(*) FROM healthcare_requests WHERE status IN ('requested','reviewing')`, nil},
 	}
 	for _, c := range counts {
 		if err := r.db.GetContext(ctx, c.dst, c.query, c.args...); err != nil {
@@ -229,6 +246,16 @@ func (r *Repository) loadBookingsToConfirm(ctx context.Context) ([]AttentionItem
 		FROM bookings
 		WHERE status = 'confirmed'
 		ORDER BY start_at ASC LIMIT 5`)
+	return items, err
+}
+
+func (r *Repository) loadHealthcareToReview(ctx context.Context) ([]AttentionItem, error) {
+	items := []AttentionItem{}
+	err := r.db.SelectContext(ctx, &items, `
+		SELECT request_number AS number, COALESCE(service_name, request_type) AS label, NULL AS total, status, created_at
+		FROM healthcare_requests
+		WHERE status IN ('requested','reviewing')
+		ORDER BY created_at DESC LIMIT 5`)
 	return items, err
 }
 

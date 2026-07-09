@@ -106,16 +106,25 @@ func (r *Repository) DeleteCategory(ctx context.Context, id int64) error {
 
 // --- brands ---
 
-const brandCols = `id, name, slug, logo_url, is_active, created_at, updated_at`
+const brandCols = `id, name, slug, department, logo_url, is_active, created_at, updated_at`
 
-func (r *Repository) ListBrands(ctx context.Context, activeOnly bool) ([]Brand, error) {
-	q := `SELECT ` + brandCols + ` FROM brands`
+func (r *Repository) ListBrands(ctx context.Context, activeOnly bool, department string) ([]Brand, error) {
+	var where []string
+	var args []any
 	if activeOnly {
-		q += ` WHERE is_active = TRUE`
+		where = append(where, "is_active = TRUE")
+	}
+	if department != "" {
+		where = append(where, "department = ?")
+		args = append(args, department)
+	}
+	q := `SELECT ` + brandCols + ` FROM brands`
+	if len(where) > 0 {
+		q += ` WHERE ` + strings.Join(where, " AND ")
 	}
 	q += ` ORDER BY name`
 	out := []Brand{}
-	if err := r.db.SelectContext(ctx, &out, q); err != nil {
+	if err := r.db.SelectContext(ctx, &out, q, args...); err != nil {
 		return nil, err
 	}
 	return out, nil
@@ -148,8 +157,8 @@ func (r *Repository) BrandSlugExists(ctx context.Context, slug string, excludeID
 
 func (r *Repository) CreateBrand(ctx context.Context, b *Brand) (int64, error) {
 	res, err := r.db.ExecContext(ctx,
-		`INSERT INTO brands (name, slug, logo_url, is_active) VALUES (?, ?, ?, ?)`,
-		b.Name, b.Slug, b.LogoURL, b.IsActive)
+		`INSERT INTO brands (name, slug, department, logo_url, is_active) VALUES (?, ?, ?, ?, ?)`,
+		b.Name, b.Slug, b.Department, b.LogoURL, b.IsActive)
 	if err != nil {
 		return 0, mapWriteErr(err)
 	}
@@ -158,8 +167,8 @@ func (r *Repository) CreateBrand(ctx context.Context, b *Brand) (int64, error) {
 
 func (r *Repository) UpdateBrand(ctx context.Context, b *Brand) error {
 	res, err := r.db.ExecContext(ctx,
-		`UPDATE brands SET name = ?, slug = ?, logo_url = ?, is_active = ? WHERE id = ?`,
-		b.Name, b.Slug, b.LogoURL, b.IsActive, b.ID)
+		`UPDATE brands SET name = ?, slug = ?, department = ?, logo_url = ?, is_active = ? WHERE id = ?`,
+		b.Name, b.Slug, b.Department, b.LogoURL, b.IsActive, b.ID)
 	if err != nil {
 		return mapWriteErr(err)
 	}
@@ -224,6 +233,14 @@ func (r *Repository) ListProducts(ctx context.Context, f ProductFilter) ([]Produ
 	if f.ExcludeTemplateKey != "" {
 		where = append(where, "NOT EXISTS (SELECT 1 FROM product_categories pc WHERE pc.id = products.category_id AND pc.template_key = ?)")
 		args = append(args, f.ExcludeTemplateKey)
+	}
+	if len(f.TemplateKeys) > 0 {
+		ph := make([]string, len(f.TemplateKeys))
+		for i, k := range f.TemplateKeys {
+			ph[i] = "?"
+			args = append(args, k)
+		}
+		where = append(where, "EXISTS (SELECT 1 FROM product_categories pc WHERE pc.id = products.category_id AND pc.template_key IN ("+strings.Join(ph, ",")+"))")
 	}
 	if f.Search != "" {
 		where = append(where, "name LIKE ?")

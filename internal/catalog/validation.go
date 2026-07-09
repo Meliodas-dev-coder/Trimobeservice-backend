@@ -22,6 +22,9 @@ func validateBrand(req BrandRequest) map[string]string {
 	if strings.TrimSpace(req.Name) == "" {
 		p["name"] = "is required"
 	}
+	if d := strings.TrimSpace(req.Department); d != "" && !IsValidDepartment(d) {
+		p["department"] = "unknown department"
+	}
 	return p
 }
 

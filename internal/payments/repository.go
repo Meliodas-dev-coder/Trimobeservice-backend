@@ -90,6 +90,21 @@ func (r *Repository) GetEventInfo(ctx context.Context, id int64) (*targetInfo, e
 	return &t, nil
 }
 
+func (r *Repository) GetHealthcareInfo(ctx context.Context, id int64) (*targetInfo, error) {
+	var t targetInfo
+	// quoted_price is NULL until priced (packages seed it at creation, an admin
+	// quotes consultations); expose that as "" so payment is blocked until set.
+	err := r.db.GetContext(ctx, &t,
+		`SELECT status, payment_status, COALESCE(quoted_price, '') AS total FROM healthcare_requests WHERE id = ?`, id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrTargetNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &t, nil
+}
+
 func (r *Repository) GetTarget(ctx context.Context, payableType string, id int64) (*PaymentTarget, error) {
 	switch payableType {
 	case PayableOrder:
@@ -107,6 +122,8 @@ func (r *Repository) GetTarget(ctx context.Context, payableType string, id int64
 		return r.getBookingTarget(ctx, id)
 	case PayableEvent:
 		return r.getEventTarget(ctx, id)
+	case PayableHealthcare:
+		return r.getHealthcareTarget(ctx, id)
 	default:
 		return nil, ErrTargetNotFound
 	}
@@ -209,6 +226,39 @@ func (r *Repository) getEventTarget(ctx context.Context, id int64) (*PaymentTarg
 	return &target, nil
 }
 
+func (r *Repository) getHealthcareTarget(ctx context.Context, id int64) (*PaymentTarget, error) {
+	var target PaymentTarget
+	err := r.db.GetContext(ctx, &target,
+		`SELECT
+			'healthcare' AS target_type,
+			id,
+			user_id,
+			COALESCE(customer_name, (SELECT full_name FROM users u WHERE u.id = healthcare_requests.user_id)) AS customer_name,
+			request_number AS number,
+			status,
+			payment_status,
+			COALESCE(quoted_price, 0) AS total,
+			NULL AS fulfillment_type,
+			service_name AS car_name,
+			category_name AS car_category,
+			request_type AS event_type,
+			COALESCE(start_at, preferred_at) AS start_at,
+			end_at,
+			address AS pickup_location,
+			NULL AS dropoff_location,
+			contact_phone,
+			created_at
+		   FROM healthcare_requests
+		  WHERE id = ?`, id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrTargetNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &target, nil
+}
+
 func (r *Repository) listOrderTargetItems(ctx context.Context, orderID int64) ([]PaymentTargetItem, error) {
 	out := []PaymentTargetItem{}
 	err := r.db.SelectContext(ctx, &out,
@@ -257,6 +307,15 @@ func (r *Repository) SetEventPaymentTx(ctx context.Context, tx *sqlx.Tx, id int6
 	q := `UPDATE event_requests SET payment_status = ? WHERE id = ?`
 	if status == targetPaid {
 		q = `UPDATE event_requests SET payment_status = ?, paid_at = NOW() WHERE id = ?`
+	}
+	_, err := tx.ExecContext(ctx, q, status, id)
+	return err
+}
+
+func (r *Repository) SetHealthcarePaymentTx(ctx context.Context, tx *sqlx.Tx, id int64, status string) error {
+	q := `UPDATE healthcare_requests SET payment_status = ? WHERE id = ?`
+	if status == targetPaid {
+		q = `UPDATE healthcare_requests SET payment_status = ?, paid_at = NOW() WHERE id = ?`
 	}
 	_, err := tx.ExecContext(ctx, q, status, id)
 	return err
