@@ -44,6 +44,7 @@ func (s *Service) CreateCarCategory(ctx context.Context, req CarCategoryRequest)
 		Name:             strings.TrimSpace(req.Name),
 		Slug:             slug,
 		Description:      req.Description,
+		Translations:     req.Translations,
 		DefaultDailyRate: defaultRate(req.DefaultDailyRate),
 		IsCargoTransport: derefBool(req.IsCargoTransport, false),
 		CargoPerKmRate:   defaultRate(req.CargoPerKmRate),
@@ -74,6 +75,7 @@ func (s *Service) UpdateCarCategory(ctx context.Context, id int64, req CarCatego
 	c.Name = strings.TrimSpace(req.Name)
 	c.Slug = slug
 	c.Description = req.Description
+	c.Translations = req.Translations
 	c.DefaultDailyRate = defaultRate(req.DefaultDailyRate)
 	c.IsCargoTransport = derefBool(req.IsCargoTransport, false)
 	c.CargoPerKmRate = defaultRate(req.CargoPerKmRate)
@@ -175,6 +177,7 @@ func (s *Service) CreateCar(ctx context.Context, req CarRequest) (*CarDetail, er
 		DailyRate:         rate,
 		Attributes:        req.Attributes,
 		Description:       req.Description,
+		Translations:      req.Translations,
 		Status:            storedCarStatus(statusOr(req.Status, CarStatusAvailable)),
 	}
 	id, err := s.repo.CreateCar(ctx, c)
@@ -219,6 +222,7 @@ func (s *Service) UpdateCar(ctx context.Context, id int64, req CarRequest) (*Car
 	c.DailyRate = rate
 	c.Attributes = req.Attributes
 	c.Description = req.Description
+	c.Translations = req.Translations
 	if req.Status != nil {
 		c.Status = storedCarStatus(*req.Status)
 	} else if c.BaseStatus != "" {

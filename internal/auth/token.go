@@ -59,7 +59,7 @@ func (t *TokenManager) ParseAccess(tokenStr string) (*Claims, error) {
 			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
 		}
 		return t.secret, nil
-	}, jwt.WithValidMethods([]string{"HS256"}), jwt.WithIssuer(t.issuer))
+	}, jwt.WithValidMethods([]string{"HS256"}), jwt.WithIssuer(t.issuer), jwt.WithExpirationRequired())
 	if err != nil {
 		return nil, err
 	}

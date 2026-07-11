@@ -15,6 +15,7 @@ import (
 
 	"github.com/trimo/backend/internal/config"
 	"github.com/trimo/backend/internal/httpx"
+	"github.com/trimo/backend/internal/ratelimit"
 )
 
 // Server holds the router and shared dependencies.
@@ -31,9 +32,15 @@ type Server struct {
 func New(cfg *config.Config, log *slog.Logger, db *sqlx.DB) *Server {
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
-	r.Use(middleware.RealIP)
+	// RealIP trusts client-supplied forwarding headers, which are spoofable when
+	// the service is directly exposed. Only honor them behind a trusted proxy.
+	if cfg.HTTP.TrustProxy {
+		r.Use(middleware.RealIP)
+	}
 	r.Use(requestLogger(log))
 	r.Use(middleware.Recoverer)
+	r.Use(securityHeaders(cfg.Env == "production"))
+	r.Use(ratelimit.New(cfg.HTTP.RateLimitRPS, cfg.HTTP.RateLimitBurst).Middleware)
 	r.Use(cors.Handler(cors.Options{
 		AllowedOrigins:   cfg.HTTP.CORSOrigins,
 		AllowedMethods:   []string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete, http.MethodOptions},

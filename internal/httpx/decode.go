@@ -8,17 +8,26 @@ import (
 	"net/http"
 )
 
+// maxJSONBody caps the size of a JSON request body (1 MiB). JSON API payloads
+// are small; this bounds memory use and blocks oversized-body DoS attempts.
+const maxJSONBody = 1 << 20
+
 // DecodeJSON strictly decodes a single JSON object from the request body into
-// dst, rejecting unknown fields and trailing data. It returns a user-safe error
-// message on failure.
+// dst, rejecting unknown fields and trailing data. The body is size-limited. It
+// returns a user-safe error message on failure.
 func DecodeJSON(w http.ResponseWriter, r *http.Request, dst any) error {
+	r.Body = http.MaxBytesReader(w, r.Body, maxJSONBody)
+
 	dec := json.NewDecoder(r.Body)
 	dec.DisallowUnknownFields()
 
 	if err := dec.Decode(dst); err != nil {
 		var syntaxErr *json.SyntaxError
 		var typeErr *json.UnmarshalTypeError
+		var maxErr *http.MaxBytesError
 		switch {
+		case errors.As(err, &maxErr):
+			return fmt.Errorf("request body must not exceed %d bytes", maxErr.Limit)
 		case errors.As(err, &syntaxErr):
 			return fmt.Errorf("body contains malformed JSON (at position %d)", syntaxErr.Offset)
 		case errors.Is(err, io.ErrUnexpectedEOF):

@@ -11,41 +11,44 @@ import (
 // --- domain models (map to tables) ---
 
 type Category struct {
-	ID          int64     `db:"id" json:"id"`
-	ParentID    *int64    `db:"parent_id" json:"parent_id,omitempty"`
-	Name        string    `db:"name" json:"name"`
-	Slug        string    `db:"slug" json:"slug"`
-	TemplateKey string    `db:"template_key" json:"template_key"`
-	Description *string   `db:"description" json:"description,omitempty"`
-	ImageURL    *string   `db:"image_url" json:"image_url,omitempty"`
-	SortOrder   int       `db:"sort_order" json:"sort_order"`
-	IsActive    bool      `db:"is_active" json:"is_active"`
-	CreatedAt   time.Time `db:"created_at" json:"created_at"`
-	UpdatedAt   time.Time `db:"updated_at" json:"updated_at"`
+	ID           int64          `db:"id" json:"id"`
+	ParentID     *int64         `db:"parent_id" json:"parent_id,omitempty"`
+	Name         string         `db:"name" json:"name"`
+	Slug         string         `db:"slug" json:"slug"`
+	TemplateKey  string         `db:"template_key" json:"template_key"`
+	Description  *string        `db:"description" json:"description,omitempty"`
+	Translations types.JSONText `db:"translations" json:"translations,omitempty"`
+	ImageURL     *string        `db:"image_url" json:"image_url,omitempty"`
+	SortOrder    int            `db:"sort_order" json:"sort_order"`
+	IsActive     bool           `db:"is_active" json:"is_active"`
+	CreatedAt    time.Time      `db:"created_at" json:"created_at"`
+	UpdatedAt    time.Time      `db:"updated_at" json:"updated_at"`
 }
 
 type Brand struct {
-	ID         int64     `db:"id" json:"id"`
-	Name       string    `db:"name" json:"name"`
-	Slug       string    `db:"slug" json:"slug"`
-	Department string    `db:"department" json:"department"`
-	LogoURL    *string   `db:"logo_url" json:"logo_url,omitempty"`
-	IsActive   bool      `db:"is_active" json:"is_active"`
-	CreatedAt  time.Time `db:"created_at" json:"created_at"`
-	UpdatedAt  time.Time `db:"updated_at" json:"updated_at"`
+	ID           int64          `db:"id" json:"id"`
+	Name         string         `db:"name" json:"name"`
+	Slug         string         `db:"slug" json:"slug"`
+	Translations types.JSONText `db:"translations" json:"translations,omitempty"`
+	Department   string         `db:"department" json:"department"`
+	LogoURL      *string        `db:"logo_url" json:"logo_url,omitempty"`
+	IsActive     bool           `db:"is_active" json:"is_active"`
+	CreatedAt    time.Time      `db:"created_at" json:"created_at"`
+	UpdatedAt    time.Time      `db:"updated_at" json:"updated_at"`
 }
 
 type Product struct {
-	ID          int64          `db:"id" json:"id"`
-	CategoryID  int64          `db:"category_id" json:"category_id"`
-	BrandID     *int64         `db:"brand_id" json:"brand_id,omitempty"`
-	Name        string         `db:"name" json:"name"`
-	Slug        string         `db:"slug" json:"slug"`
-	Description *string        `db:"description" json:"description,omitempty"`
-	Attributes  types.JSONText `db:"attributes" json:"attributes,omitempty"`
-	IsActive    bool           `db:"is_active" json:"is_active"`
-	CreatedAt   time.Time      `db:"created_at" json:"created_at"`
-	UpdatedAt   time.Time      `db:"updated_at" json:"updated_at"`
+	ID           int64          `db:"id" json:"id"`
+	CategoryID   int64          `db:"category_id" json:"category_id"`
+	BrandID      *int64         `db:"brand_id" json:"brand_id,omitempty"`
+	Name         string         `db:"name" json:"name"`
+	Slug         string         `db:"slug" json:"slug"`
+	Description  *string        `db:"description" json:"description,omitempty"`
+	Translations types.JSONText `db:"translations" json:"translations,omitempty"`
+	Attributes   types.JSONText `db:"attributes" json:"attributes,omitempty"`
+	IsActive     bool           `db:"is_active" json:"is_active"`
+	CreatedAt    time.Time      `db:"created_at" json:"created_at"`
+	UpdatedAt    time.Time      `db:"updated_at" json:"updated_at"`
 
 	// List-only aggregates: populated by ListProducts so the admin table/cards can
 	// show an image, variant count, and price range without a per-row fetch.
@@ -107,29 +110,32 @@ type ProductFilter struct {
 // --- request DTOs ---
 
 type CategoryRequest struct {
-	Name        string  `json:"name"`
-	ParentID    *int64  `json:"parent_id"`
-	TemplateKey string  `json:"template_key"`
-	Description *string `json:"description"`
-	ImageURL    *string `json:"image_url"`
-	SortOrder   int     `json:"sort_order"`
-	IsActive    *bool   `json:"is_active"`
+	Name         string         `json:"name"`
+	ParentID     *int64         `json:"parent_id"`
+	TemplateKey  string         `json:"template_key"`
+	Description  *string        `json:"description"`
+	Translations types.JSONText `json:"translations"`
+	ImageURL     *string        `json:"image_url"`
+	SortOrder    int            `json:"sort_order"`
+	IsActive     *bool          `json:"is_active"`
 }
 
 type BrandRequest struct {
-	Name       string  `json:"name"`
-	Department string  `json:"department"`
-	LogoURL    *string `json:"logo_url"`
-	IsActive   *bool   `json:"is_active"`
+	Name         string         `json:"name"`
+	Translations types.JSONText `json:"translations"`
+	Department   string         `json:"department"`
+	LogoURL      *string        `json:"logo_url"`
+	IsActive     *bool          `json:"is_active"`
 }
 
 type ProductRequest struct {
-	CategoryID  int64          `json:"category_id"`
-	BrandID     *int64         `json:"brand_id"`
-	Name        string         `json:"name"`
-	Description *string        `json:"description"`
-	Attributes  types.JSONText `json:"attributes"`
-	IsActive    *bool          `json:"is_active"`
+	CategoryID   int64          `json:"category_id"`
+	BrandID      *int64         `json:"brand_id"`
+	Name         string         `json:"name"`
+	Description  *string        `json:"description"`
+	Translations types.JSONText `json:"translations"`
+	Attributes   types.JSONText `json:"attributes"`
+	IsActive     *bool          `json:"is_active"`
 }
 
 type VariantRequest struct {

@@ -8,6 +8,7 @@ import (
 
 	"github.com/go-sql-driver/mysql"
 	"github.com/jmoiron/sqlx"
+	"github.com/jmoiron/sqlx/types"
 )
 
 var (
@@ -33,7 +34,7 @@ func NewRepository(db *sqlx.DB) *Repository {
 
 // --- categories ---
 
-const categoryCols = `id, parent_id, name, slug, template_key, description, image_url, sort_order, is_active, created_at, updated_at`
+const categoryCols = `id, parent_id, name, slug, template_key, description, translations, image_url, sort_order, is_active, created_at, updated_at`
 
 func (r *Repository) ListCategories(ctx context.Context, activeOnly bool) ([]Category, error) {
 	q := `SELECT ` + categoryCols + ` FROM product_categories`
@@ -75,9 +76,9 @@ func (r *Repository) CategorySlugExists(ctx context.Context, slug string, exclud
 
 func (r *Repository) CreateCategory(ctx context.Context, c *Category) (int64, error) {
 	res, err := r.db.ExecContext(ctx,
-		`INSERT INTO product_categories (parent_id, name, slug, template_key, description, image_url, sort_order, is_active)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		c.ParentID, c.Name, c.Slug, c.TemplateKey, c.Description, c.ImageURL, c.SortOrder, c.IsActive)
+		`INSERT INTO product_categories (parent_id, name, slug, template_key, description, translations, image_url, sort_order, is_active)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		c.ParentID, c.Name, c.Slug, c.TemplateKey, c.Description, nullableJSON(c.Translations), c.ImageURL, c.SortOrder, c.IsActive)
 	if err != nil {
 		return 0, mapWriteErr(err)
 	}
@@ -87,9 +88,9 @@ func (r *Repository) CreateCategory(ctx context.Context, c *Category) (int64, er
 func (r *Repository) UpdateCategory(ctx context.Context, c *Category) error {
 	res, err := r.db.ExecContext(ctx,
 		`UPDATE product_categories
-		 SET parent_id = ?, name = ?, slug = ?, template_key = ?, description = ?, image_url = ?, sort_order = ?, is_active = ?
+		 SET parent_id = ?, name = ?, slug = ?, template_key = ?, description = ?, translations = ?, image_url = ?, sort_order = ?, is_active = ?
 		 WHERE id = ?`,
-		c.ParentID, c.Name, c.Slug, c.TemplateKey, c.Description, c.ImageURL, c.SortOrder, c.IsActive, c.ID)
+		c.ParentID, c.Name, c.Slug, c.TemplateKey, c.Description, nullableJSON(c.Translations), c.ImageURL, c.SortOrder, c.IsActive, c.ID)
 	if err != nil {
 		return mapWriteErr(err)
 	}
@@ -106,7 +107,7 @@ func (r *Repository) DeleteCategory(ctx context.Context, id int64) error {
 
 // --- brands ---
 
-const brandCols = `id, name, slug, department, logo_url, is_active, created_at, updated_at`
+const brandCols = `id, name, slug, translations, department, logo_url, is_active, created_at, updated_at`
 
 func (r *Repository) ListBrands(ctx context.Context, activeOnly bool, department string) ([]Brand, error) {
 	var where []string
@@ -157,8 +158,8 @@ func (r *Repository) BrandSlugExists(ctx context.Context, slug string, excludeID
 
 func (r *Repository) CreateBrand(ctx context.Context, b *Brand) (int64, error) {
 	res, err := r.db.ExecContext(ctx,
-		`INSERT INTO brands (name, slug, department, logo_url, is_active) VALUES (?, ?, ?, ?, ?)`,
-		b.Name, b.Slug, b.Department, b.LogoURL, b.IsActive)
+		`INSERT INTO brands (name, slug, translations, department, logo_url, is_active) VALUES (?, ?, ?, ?, ?, ?)`,
+		b.Name, b.Slug, nullableJSON(b.Translations), b.Department, b.LogoURL, b.IsActive)
 	if err != nil {
 		return 0, mapWriteErr(err)
 	}
@@ -167,8 +168,8 @@ func (r *Repository) CreateBrand(ctx context.Context, b *Brand) (int64, error) {
 
 func (r *Repository) UpdateBrand(ctx context.Context, b *Brand) error {
 	res, err := r.db.ExecContext(ctx,
-		`UPDATE brands SET name = ?, slug = ?, department = ?, logo_url = ?, is_active = ? WHERE id = ?`,
-		b.Name, b.Slug, b.Department, b.LogoURL, b.IsActive, b.ID)
+		`UPDATE brands SET name = ?, slug = ?, translations = ?, department = ?, logo_url = ?, is_active = ? WHERE id = ?`,
+		b.Name, b.Slug, nullableJSON(b.Translations), b.Department, b.LogoURL, b.IsActive, b.ID)
 	if err != nil {
 		return mapWriteErr(err)
 	}
@@ -185,7 +186,7 @@ func (r *Repository) DeleteBrand(ctx context.Context, id int64) error {
 
 // --- products ---
 
-const productCols = `id, category_id, brand_id, name, slug, description, attributes, is_active, created_at, updated_at`
+const productCols = `id, category_id, brand_id, name, slug, description, translations, attributes, is_active, created_at, updated_at`
 
 // productListCols adds per-product aggregates (primary image, variant count,
 // active price range) via correlated subqueries, for the admin list/cards/tree.
@@ -299,9 +300,9 @@ func (r *Repository) ProductSlugExists(ctx context.Context, slug string, exclude
 
 func (r *Repository) CreateProduct(ctx context.Context, p *Product) (int64, error) {
 	res, err := r.db.ExecContext(ctx,
-		`INSERT INTO products (category_id, brand_id, name, slug, description, attributes, is_active)
-		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		p.CategoryID, p.BrandID, p.Name, p.Slug, p.Description, p.Attributes, p.IsActive)
+		`INSERT INTO products (category_id, brand_id, name, slug, description, translations, attributes, is_active)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		p.CategoryID, p.BrandID, p.Name, p.Slug, p.Description, nullableJSON(p.Translations), p.Attributes, p.IsActive)
 	if err != nil {
 		return 0, mapWriteErr(err)
 	}
@@ -311,9 +312,9 @@ func (r *Repository) CreateProduct(ctx context.Context, p *Product) (int64, erro
 func (r *Repository) UpdateProduct(ctx context.Context, p *Product) error {
 	res, err := r.db.ExecContext(ctx,
 		`UPDATE products
-		 SET category_id = ?, brand_id = ?, name = ?, slug = ?, description = ?, attributes = ?, is_active = ?
+		 SET category_id = ?, brand_id = ?, name = ?, slug = ?, description = ?, translations = ?, attributes = ?, is_active = ?
 		 WHERE id = ?`,
-		p.CategoryID, p.BrandID, p.Name, p.Slug, p.Description, p.Attributes, p.IsActive, p.ID)
+		p.CategoryID, p.BrandID, p.Name, p.Slug, p.Description, nullableJSON(p.Translations), p.Attributes, p.IsActive, p.ID)
 	if err != nil {
 		return mapWriteErr(err)
 	}
@@ -491,6 +492,14 @@ func notFoundIfNoRows(res sql.Result, notFound error) error {
 		return notFound
 	}
 	return nil
+}
+
+// nullableJSON returns nil for empty JSON so nullable JSON columns store SQL NULL.
+func nullableJSON(j types.JSONText) any {
+	if len(strings.TrimSpace(string(j))) == 0 {
+		return nil
+	}
+	return j
 }
 
 // mapWriteErr translates MySQL integrity errors into module sentinels.

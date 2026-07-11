@@ -9,14 +9,40 @@ import (
 
 	"github.com/trimo/backend/internal/auth"
 	"github.com/trimo/backend/internal/httpx"
+	"github.com/trimo/backend/internal/realtime"
 )
 
 type Handler struct {
 	svc *Service
+	pub realtime.Publisher
 }
 
 func NewHandler(svc *Service) *Handler {
 	return &Handler{svc: svc}
+}
+
+// SetPublisher wires the realtime hub so new care requests stream to admins. Nil-safe.
+func (h *Handler) SetPublisher(p realtime.Publisher) { h.pub = p }
+
+func (h *Handler) publishCreated(e *RequestDetail) { h.publish("healthcare_request.created", e) }
+func (h *Handler) publishStatus(e *RequestDetail)  { h.publish("healthcare_request.status_changed", e) }
+
+func (h *Handler) publish(evtType string, e *RequestDetail) {
+	if h.pub == nil || e == nil {
+		return
+	}
+	h.pub.Publish(realtime.Event{
+		Type: evtType,
+		Payload: map[string]any{
+			"id":             e.ID,
+			"number":         e.RequestNumber,
+			"customer_name":  e.CustomerName,
+			"patient_name":   e.PatientName,
+			"request_type":   e.RequestType,
+			"status":         e.Status,
+			"payment_status": e.PaymentStatus,
+		},
+	})
 }
 
 // ===================== public (client) reads =====================
@@ -83,6 +109,7 @@ func (h *Handler) CreateRequest(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
+	h.publishCreated(e)
 	httpx.JSON(w, http.StatusCreated, httpx.Envelope{"healthcare_request": e})
 }
 
@@ -134,6 +161,7 @@ func (h *Handler) Cancel(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
+	h.publishStatus(e)
 	httpx.JSON(w, http.StatusOK, httpx.Envelope{"healthcare_request": e})
 }
 
@@ -410,6 +438,7 @@ func (h *Handler) CreateRequestAdmin(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
+	h.publishCreated(e)
 	httpx.JSON(w, http.StatusCreated, httpx.Envelope{"healthcare_request": e})
 }
 
@@ -444,6 +473,7 @@ func (h *Handler) UpdateStatus(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
+	h.publishStatus(e)
 	httpx.JSON(w, http.StatusOK, httpx.Envelope{"healthcare_request": e})
 }
 

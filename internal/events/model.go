@@ -2,7 +2,9 @@
 // event services (sound, lighting, catering, artists, decoration…) grouped into
 // categories, plus client event requests that the team quotes manually. It
 // follows the platform's Category -> Item -> Transaction shape:
-//   ServiceCategory -> Service -> EventRequest (+ RequestService snapshots).
+//
+//	ServiceCategory -> Service -> EventRequest (+ RequestService snapshots).
+//
 // Pricing is quote-based: a request carries no price until an admin sets one;
 // payment then flows through the shared manual-payments ledger (payable 'event').
 package events
@@ -33,35 +35,37 @@ const (
 // --- catalog: what we offer ---
 
 type ServiceCategory struct {
-	ID          int64     `db:"id" json:"id"`
-	Name        string    `db:"name" json:"name"`
-	Slug        string    `db:"slug" json:"slug"`
-	Description *string   `db:"description" json:"description,omitempty"`
-	Icon        *string   `db:"icon" json:"icon,omitempty"`
-	ImageURL    *string   `db:"image_url" json:"image_url,omitempty"`
-	SortOrder   int       `db:"sort_order" json:"sort_order"`
-	IsActive    bool      `db:"is_active" json:"is_active"`
-	CreatedAt   time.Time `db:"created_at" json:"created_at"`
-	UpdatedAt   time.Time `db:"updated_at" json:"updated_at"`
+	ID           int64          `db:"id" json:"id"`
+	Name         string         `db:"name" json:"name"`
+	Slug         string         `db:"slug" json:"slug"`
+	Description  *string        `db:"description" json:"description,omitempty"`
+	Translations types.JSONText `db:"translations" json:"translations,omitempty"`
+	Icon         *string        `db:"icon" json:"icon,omitempty"`
+	ImageURL     *string        `db:"image_url" json:"image_url,omitempty"`
+	SortOrder    int            `db:"sort_order" json:"sort_order"`
+	IsActive     bool           `db:"is_active" json:"is_active"`
+	CreatedAt    time.Time      `db:"created_at" json:"created_at"`
+	UpdatedAt    time.Time      `db:"updated_at" json:"updated_at"`
 
 	// List-only aggregate.
 	ServiceCount int `db:"service_count" json:"service_count"`
 }
 
 type EventService struct {
-	ID          int64          `db:"id" json:"id"`
-	CategoryID  int64          `db:"category_id" json:"category_id"`
-	Name        string         `db:"name" json:"name"`
-	Slug        string         `db:"slug" json:"slug"`
-	Description *string        `db:"description" json:"description,omitempty"`
-	FromPrice   *string        `db:"from_price" json:"from_price,omitempty"` // DECIMAL(12,2) as string; indicative only
-	PriceUnit   *string        `db:"price_unit" json:"price_unit,omitempty"`
-	ImageURL    *string        `db:"image_url" json:"image_url,omitempty"`
-	Attributes  types.JSONText `db:"attributes" json:"attributes,omitempty"`
-	SortOrder   int            `db:"sort_order" json:"sort_order"`
-	IsActive    bool           `db:"is_active" json:"is_active"`
-	CreatedAt   time.Time      `db:"created_at" json:"created_at"`
-	UpdatedAt   time.Time      `db:"updated_at" json:"updated_at"`
+	ID           int64          `db:"id" json:"id"`
+	CategoryID   int64          `db:"category_id" json:"category_id"`
+	Name         string         `db:"name" json:"name"`
+	Slug         string         `db:"slug" json:"slug"`
+	Description  *string        `db:"description" json:"description,omitempty"`
+	Translations types.JSONText `db:"translations" json:"translations,omitempty"`
+	FromPrice    *string        `db:"from_price" json:"from_price,omitempty"` // DECIMAL(12,2) as string; indicative only
+	PriceUnit    *string        `db:"price_unit" json:"price_unit,omitempty"`
+	ImageURL     *string        `db:"image_url" json:"image_url,omitempty"`
+	Attributes   types.JSONText `db:"attributes" json:"attributes,omitempty"`
+	SortOrder    int            `db:"sort_order" json:"sort_order"`
+	IsActive     bool           `db:"is_active" json:"is_active"`
+	CreatedAt    time.Time      `db:"created_at" json:"created_at"`
+	UpdatedAt    time.Time      `db:"updated_at" json:"updated_at"`
 
 	// List-only join (category name for display).
 	CategoryName *string `db:"category_name" json:"category_name,omitempty"`
@@ -121,26 +125,27 @@ type EventRequestDetail struct {
 // formats, languages, occasions, links) are comma/newline-separated strings the
 // client splits into tags; availability is coordinated off-system.
 type Artist struct {
-	ID          int64     `db:"id" json:"id"`
-	StageName   string    `db:"stage_name" json:"stage_name"`
-	Slug        string    `db:"slug" json:"slug"`
-	Tagline     *string   `db:"tagline" json:"tagline,omitempty"`
-	Bio         *string   `db:"bio" json:"bio,omitempty"`
-	HomeBase    *string   `db:"home_base" json:"home_base,omitempty"`
-	PhotoURL    *string   `db:"photo_url" json:"photo_url,omitempty"`
-	GroupSize   *string   `db:"group_size" json:"group_size,omitempty"`
-	Genres      *string   `db:"genres" json:"genres,omitempty"`
-	Formats     *string   `db:"formats" json:"formats,omitempty"`
-	Languages   *string   `db:"languages" json:"languages,omitempty"`
-	Occasions   *string   `db:"occasions" json:"occasions,omitempty"`
-	SampleLinks *string   `db:"sample_links" json:"sample_links,omitempty"`
-	SocialLinks *string   `db:"social_links" json:"social_links,omitempty"`
-	FromFee     *string   `db:"from_fee" json:"from_fee,omitempty"` // DECIMAL(12,2) as string; indicative
-	IsFeatured  bool      `db:"is_featured" json:"is_featured"`
-	SortOrder   int       `db:"sort_order" json:"sort_order"`
-	IsActive    bool      `db:"is_active" json:"is_active"`
-	CreatedAt   time.Time `db:"created_at" json:"created_at"`
-	UpdatedAt   time.Time `db:"updated_at" json:"updated_at"`
+	ID           int64          `db:"id" json:"id"`
+	StageName    string         `db:"stage_name" json:"stage_name"`
+	Slug         string         `db:"slug" json:"slug"`
+	Tagline      *string        `db:"tagline" json:"tagline,omitempty"`
+	Bio          *string        `db:"bio" json:"bio,omitempty"`
+	Translations types.JSONText `db:"translations" json:"translations,omitempty"`
+	HomeBase     *string        `db:"home_base" json:"home_base,omitempty"`
+	PhotoURL     *string        `db:"photo_url" json:"photo_url,omitempty"`
+	GroupSize    *string        `db:"group_size" json:"group_size,omitempty"`
+	Genres       *string        `db:"genres" json:"genres,omitempty"`
+	Formats      *string        `db:"formats" json:"formats,omitempty"`
+	Languages    *string        `db:"languages" json:"languages,omitempty"`
+	Occasions    *string        `db:"occasions" json:"occasions,omitempty"`
+	SampleLinks  *string        `db:"sample_links" json:"sample_links,omitempty"`
+	SocialLinks  *string        `db:"social_links" json:"social_links,omitempty"`
+	FromFee      *string        `db:"from_fee" json:"from_fee,omitempty"` // DECIMAL(12,2) as string; indicative
+	IsFeatured   bool           `db:"is_featured" json:"is_featured"`
+	SortOrder    int            `db:"sort_order" json:"sort_order"`
+	IsActive     bool           `db:"is_active" json:"is_active"`
+	CreatedAt    time.Time      `db:"created_at" json:"created_at"`
+	UpdatedAt    time.Time      `db:"updated_at" json:"updated_at"`
 }
 
 // RequestArtist is an artist named on a request, snapshotted.
@@ -202,24 +207,26 @@ type EventRequestFilter struct {
 // --- request DTOs ---
 
 type ServiceCategoryRequest struct {
-	Name        string  `json:"name"`
-	Description *string `json:"description"`
-	Icon        *string `json:"icon"`
-	ImageURL    *string `json:"image_url"`
-	SortOrder   int     `json:"sort_order"`
-	IsActive    *bool   `json:"is_active"`
+	Name         string         `json:"name"`
+	Description  *string        `json:"description"`
+	Translations types.JSONText `json:"translations"`
+	Icon         *string        `json:"icon"`
+	ImageURL     *string        `json:"image_url"`
+	SortOrder    int            `json:"sort_order"`
+	IsActive     *bool          `json:"is_active"`
 }
 
 type ServiceRequest struct {
-	CategoryID  int64          `json:"category_id"`
-	Name        string         `json:"name"`
-	Description *string        `json:"description"`
-	FromPrice   *string        `json:"from_price"`
-	PriceUnit   *string        `json:"price_unit"`
-	ImageURL    *string        `json:"image_url"`
-	Attributes  types.JSONText `json:"attributes"`
-	SortOrder   int            `json:"sort_order"`
-	IsActive    *bool          `json:"is_active"`
+	CategoryID   int64          `json:"category_id"`
+	Name         string         `json:"name"`
+	Description  *string        `json:"description"`
+	Translations types.JSONText `json:"translations"`
+	FromPrice    *string        `json:"from_price"`
+	PriceUnit    *string        `json:"price_unit"`
+	ImageURL     *string        `json:"image_url"`
+	Attributes   types.JSONText `json:"attributes"`
+	SortOrder    int            `json:"sort_order"`
+	IsActive     *bool          `json:"is_active"`
 }
 
 // SelectedService is one service the client picks on a request.
@@ -251,22 +258,23 @@ type CreateEventRequest struct {
 
 // ArtistRequest is the admin create/update payload for an artist.
 type ArtistRequest struct {
-	StageName   string  `json:"stage_name"`
-	Tagline     *string `json:"tagline"`
-	Bio         *string `json:"bio"`
-	HomeBase    *string `json:"home_base"`
-	PhotoURL    *string `json:"photo_url"`
-	GroupSize   *string `json:"group_size"`
-	Genres      *string `json:"genres"`
-	Formats     *string `json:"formats"`
-	Languages   *string `json:"languages"`
-	Occasions   *string `json:"occasions"`
-	SampleLinks *string `json:"sample_links"`
-	SocialLinks *string `json:"social_links"`
-	FromFee     *string `json:"from_fee"`
-	IsFeatured  *bool   `json:"is_featured"`
-	SortOrder   int     `json:"sort_order"`
-	IsActive    *bool   `json:"is_active"`
+	StageName    string         `json:"stage_name"`
+	Tagline      *string        `json:"tagline"`
+	Bio          *string        `json:"bio"`
+	Translations types.JSONText `json:"translations"`
+	HomeBase     *string        `json:"home_base"`
+	PhotoURL     *string        `json:"photo_url"`
+	GroupSize    *string        `json:"group_size"`
+	Genres       *string        `json:"genres"`
+	Formats      *string        `json:"formats"`
+	Languages    *string        `json:"languages"`
+	Occasions    *string        `json:"occasions"`
+	SampleLinks  *string        `json:"sample_links"`
+	SocialLinks  *string        `json:"social_links"`
+	FromFee      *string        `json:"from_fee"`
+	IsFeatured   *bool          `json:"is_featured"`
+	SortOrder    int            `json:"sort_order"`
+	IsActive     *bool          `json:"is_active"`
 }
 
 // AdminCreateEventRequest lets an admin log a phone/walk-in request.

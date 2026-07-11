@@ -30,6 +30,17 @@ type HTTPConfig struct {
 	IdleTimeout     time.Duration
 	ShutdownTimeout time.Duration
 	CORSOrigins     []string
+	// TrustProxy enables honoring X-Forwarded-For / X-Real-IP. Enable ONLY when
+	// the service sits behind a trusted reverse proxy/load balancer; otherwise a
+	// client can spoof these headers to forge its IP and evade rate limiting.
+	TrustProxy bool
+	// RateLimitRPS/Burst bound requests per client IP across the whole API.
+	RateLimitRPS   float64
+	RateLimitBurst int
+	// AuthRateLimit* apply the stricter budget to auth endpoints (login/register/
+	// refresh) to blunt brute-force and credential-stuffing.
+	AuthRateLimitRPS   float64
+	AuthRateLimitBurst int
 }
 
 type DBConfig struct {
@@ -77,6 +88,11 @@ func Load() (*Config, error) {
 				"http://localhost",
 				"capacitor://localhost",
 			}),
+			TrustProxy:         getBool("TRUST_PROXY", false),
+			RateLimitRPS:       getFloat("RATE_LIMIT_RPS", 30),
+			RateLimitBurst:     getInt("RATE_LIMIT_BURST", 60),
+			AuthRateLimitRPS:   getFloat("AUTH_RATE_LIMIT_RPS", 0.2), // ~12/min sustained
+			AuthRateLimitBurst: getInt("AUTH_RATE_LIMIT_BURST", 10),
 		},
 		DB: DBConfig{
 			Host:            getStr("DB_HOST", "127.0.0.1"),
@@ -104,6 +120,14 @@ func Load() (*Config, error) {
 
 	if cfg.JWT.Secret == "" {
 		return nil, fmt.Errorf("config: JWT_SECRET is required")
+	}
+	// A short HS256 key is brute-forceable; require real entropy (>= 32 bytes).
+	if len(cfg.JWT.Secret) < 32 {
+		return nil, fmt.Errorf("config: JWT_SECRET must be at least 32 characters")
+	}
+	// Never let the shipped placeholder secret reach production.
+	if cfg.Env == "production" && strings.Contains(strings.ToLower(cfg.JWT.Secret), "change-me") {
+		return nil, fmt.Errorf("config: JWT_SECRET still uses the development placeholder; set a real secret")
 	}
 	return cfg, nil
 }
@@ -135,6 +159,24 @@ func getInt(key string, def int) int {
 	if v := os.Getenv(key); v != "" {
 		if n, err := strconv.Atoi(v); err == nil {
 			return n
+		}
+	}
+	return def
+}
+
+func getBool(key string, def bool) bool {
+	if v := os.Getenv(key); v != "" {
+		if b, err := strconv.ParseBool(v); err == nil {
+			return b
+		}
+	}
+	return def
+}
+
+func getFloat(key string, def float64) float64 {
+	if v := os.Getenv(key); v != "" {
+		if f, err := strconv.ParseFloat(v, 64); err == nil {
+			return f
 		}
 	}
 	return def

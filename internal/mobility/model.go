@@ -26,18 +26,19 @@ const (
 // --- domain models ---
 
 type CarCategory struct {
-	ID               int64     `db:"id" json:"id"`
-	Name             string    `db:"name" json:"name"`
-	Slug             string    `db:"slug" json:"slug"`
-	Description      *string   `db:"description" json:"description,omitempty"`
-	DefaultDailyRate string    `db:"default_daily_rate" json:"default_daily_rate"` // DECIMAL(12,2) as string
-	IsCargoTransport bool      `db:"is_cargo_transport" json:"is_cargo_transport"`
-	CargoPerKmRate   string    `db:"cargo_per_km_rate" json:"cargo_per_km_rate"`
-	CargoMinimumRate string    `db:"cargo_minimum_rate" json:"cargo_minimum_rate"`
-	SortOrder        int       `db:"sort_order" json:"sort_order"`
-	IsActive         bool      `db:"is_active" json:"is_active"`
-	CreatedAt        time.Time `db:"created_at" json:"created_at"`
-	UpdatedAt        time.Time `db:"updated_at" json:"updated_at"`
+	ID               int64          `db:"id" json:"id"`
+	Name             string         `db:"name" json:"name"`
+	Slug             string         `db:"slug" json:"slug"`
+	Description      *string        `db:"description" json:"description,omitempty"`
+	Translations     types.JSONText `db:"translations" json:"translations,omitempty"`
+	DefaultDailyRate string         `db:"default_daily_rate" json:"default_daily_rate"` // DECIMAL(12,2) as string
+	IsCargoTransport bool           `db:"is_cargo_transport" json:"is_cargo_transport"`
+	CargoPerKmRate   string         `db:"cargo_per_km_rate" json:"cargo_per_km_rate"`
+	CargoMinimumRate string         `db:"cargo_minimum_rate" json:"cargo_minimum_rate"`
+	SortOrder        int            `db:"sort_order" json:"sort_order"`
+	IsActive         bool           `db:"is_active" json:"is_active"`
+	CreatedAt        time.Time      `db:"created_at" json:"created_at"`
+	UpdatedAt        time.Time      `db:"updated_at" json:"updated_at"`
 }
 
 type Car struct {
@@ -59,6 +60,7 @@ type Car struct {
 	CargoMinimumRate  string         `db:"cargo_minimum_rate" json:"cargo_minimum_rate"`
 	Attributes        types.JSONText `db:"attributes" json:"attributes,omitempty"`
 	Description       *string        `db:"description" json:"description,omitempty"`
+	Translations      types.JSONText `db:"translations" json:"translations,omitempty"`
 	Status            string         `db:"status" json:"status"`
 	BaseStatus        string         `db:"base_status" json:"-"`
 	PrimaryImageURL   *string        `db:"primary_image_url" json:"primary_image_url,omitempty"`
@@ -138,14 +140,15 @@ type CarFilter struct {
 // --- request DTOs ---
 
 type CarCategoryRequest struct {
-	Name             string  `json:"name"`
-	Description      *string `json:"description"`
-	DefaultDailyRate string  `json:"default_daily_rate"`
-	IsCargoTransport *bool   `json:"is_cargo_transport"`
-	CargoPerKmRate   string  `json:"cargo_per_km_rate"`
-	CargoMinimumRate string  `json:"cargo_minimum_rate"`
-	SortOrder        int     `json:"sort_order"`
-	IsActive         *bool   `json:"is_active"`
+	Name             string         `json:"name"`
+	Description      *string        `json:"description"`
+	Translations     types.JSONText `json:"translations"`
+	DefaultDailyRate string         `json:"default_daily_rate"`
+	IsCargoTransport *bool          `json:"is_cargo_transport"`
+	CargoPerKmRate   string         `json:"cargo_per_km_rate"`
+	CargoMinimumRate string         `json:"cargo_minimum_rate"`
+	SortOrder        int            `json:"sort_order"`
+	IsActive         *bool          `json:"is_active"`
 }
 
 type CarRequest struct {
@@ -162,6 +165,7 @@ type CarRequest struct {
 	DailyRate         string         `json:"daily_rate"` // blank = seed from category default (create) / keep (update)
 	Attributes        types.JSONText `json:"attributes"`
 	Description       *string        `json:"description"`
+	Translations      types.JSONText `json:"translations"`
 	Status            *string        `json:"status"`
 }
 

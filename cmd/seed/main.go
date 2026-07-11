@@ -2,7 +2,9 @@
 // admin). The public API never grants the admin role, so this is how the first
 // admin is bootstrapped.
 //
-//	go run ./cmd/seed -email=admin@trimo.dev -password=secret123 -name="Super Admin"
+//	go run ./cmd/seed -email=admin@trimo.dev -password='a-long-random-passphrase' -name="Super Admin"
+//
+// No credentials are baked in: -email and -password must be supplied explicitly.
 //
 // If a user with the email already exists, it is promoted to admin (and its
 // password reset only if -password is supplied). Migrations are applied first,
@@ -28,8 +30,8 @@ import (
 )
 
 func main() {
-	email := flag.String("email", "meliodas.dev.coder@gmail.com", "admin email (required)")
-	password := flag.String("password", "Prince of peace", "admin password, min 8 chars (required to create; optional to reset)")
+	email := flag.String("email", "", "admin email (required)")
+	password := flag.String("password", "", "admin password, min 12 chars (required to create; optional to reset)")
 	name := flag.String("name", "Administrator", "admin full name")
 	flag.Parse()
 
@@ -45,8 +47,8 @@ func run(email, password, name string) error {
 	if email == "" {
 		return errors.New("-email is required")
 	}
-	if password != "" && len(password) < 8 {
-		return errors.New("-password must be at least 8 characters")
+	if password != "" && len(password) < 12 {
+		return errors.New("-password must be at least 12 characters")
 	}
 
 	cfg, err := config.Load()
@@ -92,8 +94,8 @@ func run(email, password, name string) error {
 		return nil
 
 	case errors.Is(err, sql.ErrNoRows):
-		if len(password) < 8 {
-			return errors.New("-password (min 8 chars) is required to create a new admin")
+		if len(password) < 12 {
+			return errors.New("-password (min 12 chars) is required to create a new admin")
 		}
 		fullName := strings.TrimSpace(name)
 		if fullName == "" {

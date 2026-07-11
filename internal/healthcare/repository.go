@@ -54,7 +54,7 @@ func (r *Repository) InTx(ctx context.Context, fn func(tx *sqlx.Tx) error) error
 // --- practitioners ---
 
 const practitionerCols = `id, type, full_name, specialty, phone, email, license_number,
-	bio, photo_url, status, created_at, updated_at`
+	bio, translations, photo_url, status, created_at, updated_at`
 
 func (r *Repository) ListPractitioners(ctx context.Context, f PractitionerFilter) ([]Practitioner, int, error) {
 	var where []string
@@ -121,9 +121,9 @@ func (r *Repository) PractitionerLicenseExists(ctx context.Context, license stri
 
 func (r *Repository) CreatePractitioner(ctx context.Context, p *Practitioner) (int64, error) {
 	res, err := r.db.ExecContext(ctx,
-		`INSERT INTO practitioners (type, full_name, specialty, phone, email, license_number, bio, photo_url, status)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		p.Type, p.FullName, p.Specialty, p.Phone, p.Email, p.LicenseNumber, p.Bio, p.PhotoURL, p.Status)
+		`INSERT INTO practitioners (type, full_name, specialty, phone, email, license_number, bio, translations, photo_url, status)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		p.Type, p.FullName, p.Specialty, p.Phone, p.Email, p.LicenseNumber, p.Bio, nullableJSON(p.Translations), p.PhotoURL, p.Status)
 	if err != nil {
 		return 0, mapWriteErr(err)
 	}
@@ -134,9 +134,9 @@ func (r *Repository) UpdatePractitioner(ctx context.Context, p *Practitioner) er
 	res, err := r.db.ExecContext(ctx,
 		`UPDATE practitioners
 		 SET type = ?, full_name = ?, specialty = ?, phone = ?, email = ?, license_number = ?,
-			 bio = ?, photo_url = ?, status = ?
+			 bio = ?, translations = ?, photo_url = ?, status = ?
 		 WHERE id = ?`,
-		p.Type, p.FullName, p.Specialty, p.Phone, p.Email, p.LicenseNumber, p.Bio, p.PhotoURL, p.Status, p.ID)
+		p.Type, p.FullName, p.Specialty, p.Phone, p.Email, p.LicenseNumber, p.Bio, nullableJSON(p.Translations), p.PhotoURL, p.Status, p.ID)
 	if err != nil {
 		return mapWriteErr(err)
 	}
@@ -153,7 +153,7 @@ func (r *Repository) DeletePractitioner(ctx context.Context, id int64) error {
 
 // --- service categories ---
 
-const categoryCols = `id, name, slug, description, icon, image_url, sort_order, is_active, created_at, updated_at`
+const categoryCols = `id, name, slug, description, translations, icon, image_url, sort_order, is_active, created_at, updated_at`
 
 func (r *Repository) ListCategories(ctx context.Context, activeOnly bool) ([]ServiceCategory, error) {
 	q := `SELECT ` + categoryCols + `,
@@ -197,9 +197,9 @@ func (r *Repository) CategorySlugExists(ctx context.Context, slug string, exclud
 
 func (r *Repository) CreateCategory(ctx context.Context, c *ServiceCategory) (int64, error) {
 	res, err := r.db.ExecContext(ctx,
-		`INSERT INTO healthcare_service_categories (name, slug, description, icon, image_url, sort_order, is_active)
-		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		c.Name, c.Slug, c.Description, c.Icon, c.ImageURL, c.SortOrder, c.IsActive)
+		`INSERT INTO healthcare_service_categories (name, slug, description, translations, icon, image_url, sort_order, is_active)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		c.Name, c.Slug, c.Description, nullableJSON(c.Translations), c.Icon, c.ImageURL, c.SortOrder, c.IsActive)
 	if err != nil {
 		return 0, mapWriteErr(err)
 	}
@@ -209,9 +209,9 @@ func (r *Repository) CreateCategory(ctx context.Context, c *ServiceCategory) (in
 func (r *Repository) UpdateCategory(ctx context.Context, c *ServiceCategory) error {
 	res, err := r.db.ExecContext(ctx,
 		`UPDATE healthcare_service_categories
-		 SET name = ?, slug = ?, description = ?, icon = ?, image_url = ?, sort_order = ?, is_active = ?
+		 SET name = ?, slug = ?, description = ?, translations = ?, icon = ?, image_url = ?, sort_order = ?, is_active = ?
 		 WHERE id = ?`,
-		c.Name, c.Slug, c.Description, c.Icon, c.ImageURL, c.SortOrder, c.IsActive, c.ID)
+		c.Name, c.Slug, c.Description, nullableJSON(c.Translations), c.Icon, c.ImageURL, c.SortOrder, c.IsActive, c.ID)
 	if err != nil {
 		return mapWriteErr(err)
 	}
@@ -228,7 +228,7 @@ func (r *Repository) DeleteCategory(ctx context.Context, id int64) error {
 
 // --- services ---
 
-const serviceCols = `id, category_id, name, slug, description, service_type, from_price, price,
+const serviceCols = `id, category_id, name, slug, description, translations, service_type, from_price, price,
 	price_unit, duration_days, image_url, attributes, sort_order, is_active, created_at, updated_at`
 
 const serviceListCols = serviceCols + `,
@@ -314,10 +314,10 @@ func (r *Repository) CreateService(ctx context.Context, s *HealthcareService, st
 	err := r.InTx(ctx, func(tx *sqlx.Tx) error {
 		res, err := tx.ExecContext(ctx,
 			`INSERT INTO healthcare_services
-				(category_id, name, slug, description, service_type, from_price, price, price_unit,
+				(category_id, name, slug, description, translations, service_type, from_price, price, price_unit,
 				 duration_days, image_url, attributes, sort_order, is_active)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			s.CategoryID, s.Name, s.Slug, s.Description, s.ServiceType, s.FromPrice, s.Price, s.PriceUnit,
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			s.CategoryID, s.Name, s.Slug, s.Description, nullableJSON(s.Translations), s.ServiceType, s.FromPrice, s.Price, s.PriceUnit,
 			s.DurationDays, s.ImageURL, nullableJSON(s.Attributes), s.SortOrder, s.IsActive)
 		if err != nil {
 			return mapWriteErr(err)
@@ -336,10 +336,10 @@ func (r *Repository) UpdateService(ctx context.Context, s *HealthcareService, st
 	return r.InTx(ctx, func(tx *sqlx.Tx) error {
 		res, err := tx.ExecContext(ctx,
 			`UPDATE healthcare_services
-			 SET category_id = ?, name = ?, slug = ?, description = ?, service_type = ?, from_price = ?,
+			 SET category_id = ?, name = ?, slug = ?, description = ?, translations = ?, service_type = ?, from_price = ?,
 				 price = ?, price_unit = ?, duration_days = ?, image_url = ?, attributes = ?, sort_order = ?, is_active = ?
 			 WHERE id = ?`,
-			s.CategoryID, s.Name, s.Slug, s.Description, s.ServiceType, s.FromPrice, s.Price, s.PriceUnit,
+			s.CategoryID, s.Name, s.Slug, s.Description, nullableJSON(s.Translations), s.ServiceType, s.FromPrice, s.Price, s.PriceUnit,
 			s.DurationDays, s.ImageURL, nullableJSON(s.Attributes), s.SortOrder, s.IsActive, s.ID)
 		if err != nil {
 			return mapWriteErr(err)
@@ -589,7 +589,7 @@ func (r *Repository) CustomerName(ctx context.Context, q sqlx.QueryerContext, us
 func (r *Repository) GetSettings(ctx context.Context) (*Settings, error) {
 	var s Settings
 	err := r.db.GetContext(ctx, &s,
-		`SELECT emergency_phone, emergency_hours, emergency_note, updated_at FROM healthcare_settings WHERE id = 1`)
+		`SELECT emergency_phone, emergency_hours, emergency_note, translations, updated_at FROM healthcare_settings WHERE id = 1`)
 	if errors.Is(err, sql.ErrNoRows) {
 		// Row is seeded by migration, but stay nil-safe if it was removed.
 		return &Settings{}, nil
@@ -602,11 +602,12 @@ func (r *Repository) GetSettings(ctx context.Context) (*Settings, error) {
 
 func (r *Repository) UpdateSettings(ctx context.Context, s *Settings) error {
 	_, err := r.db.ExecContext(ctx,
-		`INSERT INTO healthcare_settings (id, emergency_phone, emergency_hours, emergency_note)
-		 VALUES (1, ?, ?, ?)
+		`INSERT INTO healthcare_settings (id, emergency_phone, emergency_hours, emergency_note, translations)
+		 VALUES (1, ?, ?, ?, ?)
 		 ON DUPLICATE KEY UPDATE emergency_phone = VALUES(emergency_phone),
-			 emergency_hours = VALUES(emergency_hours), emergency_note = VALUES(emergency_note)`,
-		s.EmergencyPhone, s.EmergencyHours, s.EmergencyNote)
+			 emergency_hours = VALUES(emergency_hours), emergency_note = VALUES(emergency_note),
+			 translations = VALUES(translations)`,
+		s.EmergencyPhone, s.EmergencyHours, s.EmergencyNote, nullableJSON(s.Translations))
 	return err
 }
 

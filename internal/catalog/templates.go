@@ -27,6 +27,7 @@ const DefaultTemplateKey = "generic"
 const (
 	DepartmentTech    = "tech"
 	DepartmentFashion = "fashion"
+	DepartmentCoffee  = "coffee"
 )
 
 // Department is a storefront/back-office grouping of product types.
@@ -38,6 +39,7 @@ type Department struct {
 var departments = []Department{
 	{Key: DepartmentTech, Label: "Tech"},
 	{Key: DepartmentFashion, Label: "Fashion"},
+	{Key: DepartmentCoffee, Label: "Coffee"},
 }
 
 // Departments returns all departments in display order.
@@ -195,6 +197,23 @@ var productTemplates = []ProductTemplate{
 		VariantAxes: []TemplateField{
 			{Key: "size", Label: "Size (EU)", Type: FieldText, Filterable: true},
 			{Key: "color", Label: "Color", Type: FieldText, Filterable: true},
+		},
+	},
+	{
+		Key:        "coffee",
+		Label:      "Coffee",
+		Department: DepartmentCoffee,
+		ProductFields: []TemplateField{
+			{Key: "roast", Label: "Roast", Type: FieldSelect, Options: []string{"Light", "Medium", "Medium-dark", "Dark"}, Filterable: true},
+			{Key: "form", Label: "Form", Type: FieldSelect, Options: []string{"Whole bean", "Ground", "Pods", "Instant"}, Filterable: true},
+			{Key: "origin", Label: "Origin", Type: FieldText},
+			{Key: "process", Label: "Process", Type: FieldSelect, Options: []string{"Washed", "Natural", "Honey"}},
+			{Key: "decaf", Label: "Decaf", Type: FieldBool, Filterable: true},
+		},
+		// A sellable SKU is a pack size, each with its own price and stock. Weight
+		// is free text so "250g", "1kg", or "12 × 20g" all fit.
+		VariantAxes: []TemplateField{
+			{Key: "weight", Label: "Weight / pack", Type: FieldText, Filterable: true},
 		},
 	},
 	{

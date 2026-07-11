@@ -13,13 +13,13 @@ import (
 )
 
 var (
-	ErrInvalidCategory   = errors.New("referenced event service category does not exist")
-	ErrCustomerMissing   = errors.New("customer not found")
+	ErrInvalidCategory    = errors.New("referenced event service category does not exist")
+	ErrCustomerMissing    = errors.New("customer not found")
 	ErrServiceUnavailable = errors.New("one or more selected services are unavailable")
-	ErrArtistUnavailable = errors.New("one or more selected artists are unavailable")
-	ErrInvalidTransition = errors.New("invalid status transition")
-	ErrNotCancellable    = errors.New("event request can no longer be cancelled")
-	ErrNotQuotable       = errors.New("a quote can no longer be set for this request")
+	ErrArtistUnavailable  = errors.New("one or more selected artists are unavailable")
+	ErrInvalidTransition  = errors.New("invalid status transition")
+	ErrNotCancellable     = errors.New("event request can no longer be cancelled")
+	ErrNotQuotable        = errors.New("a quote can no longer be set for this request")
 )
 
 // ImageDeleter removes an image's backing file from object storage. Optional
@@ -49,13 +49,14 @@ func (s *Service) CreateCategory(ctx context.Context, req ServiceCategoryRequest
 		return nil, err
 	}
 	c := &ServiceCategory{
-		Name:        strings.TrimSpace(req.Name),
-		Slug:        slug,
-		Description: req.Description,
-		Icon:        req.Icon,
-		ImageURL:    req.ImageURL,
-		SortOrder:   req.SortOrder,
-		IsActive:    derefBool(req.IsActive, true),
+		Name:         strings.TrimSpace(req.Name),
+		Slug:         slug,
+		Description:  req.Description,
+		Translations: req.Translations,
+		Icon:         req.Icon,
+		ImageURL:     req.ImageURL,
+		SortOrder:    req.SortOrder,
+		IsActive:     derefBool(req.IsActive, true),
 	}
 	id, err := s.repo.CreateCategory(ctx, c)
 	if err != nil {
@@ -76,6 +77,7 @@ func (s *Service) UpdateCategory(ctx context.Context, id int64, req ServiceCateg
 	c.Name = strings.TrimSpace(req.Name)
 	c.Slug = slug
 	c.Description = req.Description
+	c.Translations = req.Translations
 	c.Icon = req.Icon
 	c.ImageURL = req.ImageURL
 	c.SortOrder = req.SortOrder
@@ -122,16 +124,17 @@ func (s *Service) CreateService(ctx context.Context, req ServiceRequest) (*Event
 		return nil, err
 	}
 	svc := &EventService{
-		CategoryID:  req.CategoryID,
-		Name:        strings.TrimSpace(req.Name),
-		Slug:        slug,
-		Description: req.Description,
-		FromPrice:   normalizeMoney(req.FromPrice),
-		PriceUnit:   req.PriceUnit,
-		ImageURL:    req.ImageURL,
-		Attributes:  req.Attributes,
-		SortOrder:   req.SortOrder,
-		IsActive:    derefBool(req.IsActive, true),
+		CategoryID:   req.CategoryID,
+		Name:         strings.TrimSpace(req.Name),
+		Slug:         slug,
+		Description:  req.Description,
+		Translations: req.Translations,
+		FromPrice:    normalizeMoney(req.FromPrice),
+		PriceUnit:    req.PriceUnit,
+		ImageURL:     req.ImageURL,
+		Attributes:   req.Attributes,
+		SortOrder:    req.SortOrder,
+		IsActive:     derefBool(req.IsActive, true),
 	}
 	id, err := s.repo.CreateService(ctx, svc)
 	if err != nil {
@@ -156,6 +159,7 @@ func (s *Service) UpdateService(ctx context.Context, id int64, req ServiceReques
 	svc.Name = strings.TrimSpace(req.Name)
 	svc.Slug = slug
 	svc.Description = req.Description
+	svc.Translations = req.Translations
 	svc.FromPrice = normalizeMoney(req.FromPrice)
 	svc.PriceUnit = req.PriceUnit
 	svc.ImageURL = req.ImageURL
@@ -257,6 +261,7 @@ func artistFromRequest(a *Artist, req ArtistRequest, creating bool) *Artist {
 	a.StageName = strings.TrimSpace(req.StageName)
 	a.Tagline = req.Tagline
 	a.Bio = req.Bio
+	a.Translations = req.Translations
 	a.HomeBase = req.HomeBase
 	a.PhotoURL = req.PhotoURL
 	a.GroupSize = req.GroupSize

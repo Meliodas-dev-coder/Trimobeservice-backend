@@ -10,14 +10,41 @@ import (
 
 	"github.com/trimo/backend/internal/auth"
 	"github.com/trimo/backend/internal/httpx"
+	"github.com/trimo/backend/internal/realtime"
 )
 
 type Handler struct {
 	svc *Service
+	pub realtime.Publisher
 }
 
 func NewHandler(svc *Service) *Handler {
 	return &Handler{svc: svc}
+}
+
+// SetPublisher wires the realtime hub so new bookings stream to admins. Nil-safe.
+func (h *Handler) SetPublisher(p realtime.Publisher) { h.pub = p }
+
+func (h *Handler) publishCreated(b *BookingDetail) { h.publish("booking.created", b) }
+func (h *Handler) publishStatus(b *BookingDetail)  { h.publish("booking.status_changed", b) }
+
+func (h *Handler) publish(evtType string, b *BookingDetail) {
+	if h.pub == nil || b == nil {
+		return
+	}
+	h.pub.Publish(realtime.Event{
+		Type: evtType,
+		Payload: map[string]any{
+			"id":             b.ID,
+			"number":         b.BookingNumber,
+			"customer_name":  b.CustomerName,
+			"car_name":       b.CarName,
+			"amount":         b.TotalPrice,
+			"status":         b.Status,
+			"payment_status": b.PaymentStatus,
+			"start_at":       b.StartAt,
+		},
+	})
 }
 
 // ===================== public: availability =====================
@@ -83,6 +110,7 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
+	h.publishCreated(b)
 	httpx.JSON(w, http.StatusCreated, httpx.Envelope{"booking": b})
 }
 
@@ -134,6 +162,7 @@ func (h *Handler) Cancel(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
+	h.publishStatus(b)
 	httpx.JSON(w, http.StatusOK, httpx.Envelope{"booking": b})
 }
 
@@ -153,6 +182,7 @@ func (h *Handler) CreateAdmin(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
+	h.publishCreated(b)
 	httpx.JSON(w, http.StatusCreated, httpx.Envelope{"booking": b})
 }
 
@@ -212,6 +242,7 @@ func (h *Handler) AssignDriver(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
+	h.publishStatus(b)
 	httpx.JSON(w, http.StatusOK, httpx.Envelope{"booking": b})
 }
 
@@ -233,6 +264,7 @@ func (h *Handler) UpdateStatus(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
+	h.publishStatus(b)
 	httpx.JSON(w, http.StatusOK, httpx.Envelope{"booking": b})
 }
 

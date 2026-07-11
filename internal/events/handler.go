@@ -9,14 +9,39 @@ import (
 
 	"github.com/trimo/backend/internal/auth"
 	"github.com/trimo/backend/internal/httpx"
+	"github.com/trimo/backend/internal/realtime"
 )
 
 type Handler struct {
 	svc *Service
+	pub realtime.Publisher
 }
 
 func NewHandler(svc *Service) *Handler {
 	return &Handler{svc: svc}
+}
+
+// SetPublisher wires the realtime hub so new event requests stream to admins. Nil-safe.
+func (h *Handler) SetPublisher(p realtime.Publisher) { h.pub = p }
+
+func (h *Handler) publishCreated(e *EventRequestDetail) { h.publish("event_request.created", e) }
+func (h *Handler) publishStatus(e *EventRequestDetail)  { h.publish("event_request.status_changed", e) }
+
+func (h *Handler) publish(evtType string, e *EventRequestDetail) {
+	if h.pub == nil || e == nil {
+		return
+	}
+	h.pub.Publish(realtime.Event{
+		Type: evtType,
+		Payload: map[string]any{
+			"id":             e.ID,
+			"number":         e.RequestNumber,
+			"customer_name":  e.CustomerName,
+			"event_type":     e.EventType,
+			"status":         e.Status,
+			"payment_status": e.PaymentStatus,
+		},
+	})
 }
 
 // ===================== public (client) reads =====================
@@ -96,6 +121,7 @@ func (h *Handler) CreateRequest(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
+	h.publishCreated(e)
 	httpx.JSON(w, http.StatusCreated, httpx.Envelope{"event_request": e})
 }
 
@@ -147,6 +173,7 @@ func (h *Handler) Cancel(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
+	h.publishStatus(e)
 	httpx.JSON(w, http.StatusOK, httpx.Envelope{"event_request": e})
 }
 
@@ -416,6 +443,7 @@ func (h *Handler) CreateRequestAdmin(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
+	h.publishCreated(e)
 	httpx.JSON(w, http.StatusCreated, httpx.Envelope{"event_request": e})
 }
 
@@ -450,6 +478,7 @@ func (h *Handler) UpdateStatus(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
+	h.publishStatus(e)
 	httpx.JSON(w, http.StatusOK, httpx.Envelope{"event_request": e})
 }
 

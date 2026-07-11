@@ -102,6 +102,7 @@ func applyPractitioner(p *Practitioner, req PractitionerRequest, creating bool) 
 	p.Email = req.Email
 	p.LicenseNumber = blankToNil(req.LicenseNumber)
 	p.Bio = req.Bio
+	p.Translations = req.Translations
 	p.PhotoURL = req.PhotoURL
 	if creating {
 		p.Status = statusOr(req.Status, PractitionerActive)
@@ -142,13 +143,14 @@ func (s *Service) CreateCategory(ctx context.Context, req ServiceCategoryRequest
 		return nil, err
 	}
 	c := &ServiceCategory{
-		Name:        strings.TrimSpace(req.Name),
-		Slug:        slug,
-		Description: req.Description,
-		Icon:        req.Icon,
-		ImageURL:    req.ImageURL,
-		SortOrder:   req.SortOrder,
-		IsActive:    derefBool(req.IsActive, true),
+		Name:         strings.TrimSpace(req.Name),
+		Slug:         slug,
+		Description:  req.Description,
+		Translations: req.Translations,
+		Icon:         req.Icon,
+		ImageURL:     req.ImageURL,
+		SortOrder:    req.SortOrder,
+		IsActive:     derefBool(req.IsActive, true),
 	}
 	id, err := s.repo.CreateCategory(ctx, c)
 	if err != nil {
@@ -169,6 +171,7 @@ func (s *Service) UpdateCategory(ctx context.Context, id int64, req ServiceCateg
 	c.Name = strings.TrimSpace(req.Name)
 	c.Slug = slug
 	c.Description = req.Description
+	c.Translations = req.Translations
 	c.Icon = req.Icon
 	c.ImageURL = req.ImageURL
 	c.SortOrder = req.SortOrder
@@ -266,6 +269,7 @@ func serviceFromRequest(svc *HealthcareService, req ServiceRequest, creating boo
 	svc.CategoryID = req.CategoryID
 	svc.Name = strings.TrimSpace(req.Name)
 	svc.Description = req.Description
+	svc.Translations = req.Translations
 	svc.ServiceType = normalizeServiceType(req.ServiceType)
 	svc.FromPrice = normalizeMoney(req.FromPrice)
 	svc.Price = normalizeMoney(req.Price)
@@ -532,6 +536,7 @@ func (s *Service) UpdateSettings(ctx context.Context, req SettingsRequest) (*Set
 		EmergencyPhone: blankToNil(req.EmergencyPhone),
 		EmergencyHours: blankToNil(req.EmergencyHours),
 		EmergencyNote:  blankToNil(req.EmergencyNote),
+		Translations:   req.Translations,
 	}
 	if err := s.repo.UpdateSettings(ctx, set); err != nil {
 		return nil, err

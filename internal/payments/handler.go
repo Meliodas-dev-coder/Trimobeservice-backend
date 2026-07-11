@@ -9,14 +9,37 @@ import (
 
 	"github.com/trimo/backend/internal/auth"
 	"github.com/trimo/backend/internal/httpx"
+	"github.com/trimo/backend/internal/realtime"
 )
 
 type Handler struct {
 	svc *Service
+	pub realtime.Publisher
 }
 
 func NewHandler(svc *Service) *Handler {
 	return &Handler{svc: svc}
+}
+
+// SetPublisher wires the realtime hub so recorded/refunded payments stream to
+// admins. Nil-safe.
+func (h *Handler) SetPublisher(p realtime.Publisher) { h.pub = p }
+
+func (h *Handler) publishPayment(evtType string, p *Payment) {
+	if h.pub == nil || p == nil {
+		return
+	}
+	h.pub.Publish(realtime.Event{
+		Type: evtType,
+		Payload: map[string]any{
+			"id":           p.ID,
+			"payable_type": p.PayableType,
+			"payable_id":   p.PayableID,
+			"amount":       p.Amount,
+			"method":       p.Method,
+			"status":       p.Status,
+		},
+	})
 }
 
 func (h *Handler) Record(w http.ResponseWriter, r *http.Request) {
@@ -38,6 +61,7 @@ func (h *Handler) Record(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
+	h.publishPayment("payment.recorded", payment)
 	httpx.JSON(w, http.StatusCreated, httpx.Envelope{"payment": payment})
 }
 
@@ -90,6 +114,7 @@ func (h *Handler) Refund(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
+	h.publishPayment("payment.refunded", payment)
 	httpx.JSON(w, http.StatusOK, httpx.Envelope{"payment": payment})
 }
 

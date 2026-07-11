@@ -76,6 +76,10 @@ func (s *Service) Login(ctx context.Context, req LoginRequest, meta sessionMeta)
 	u, err := s.repo.GetByEmail(ctx, normalizeEmail(req.Email))
 	if err != nil {
 		if errors.Is(err, ErrUserNotFound) {
+			// Perform a dummy bcrypt comparison so that a missing account costs
+			// roughly the same time as a wrong password — this prevents an
+			// attacker from enumerating registered emails via response timing.
+			checkPassword(dummyHash, req.Password)
 			return nil, nil, ErrInvalidCredentials
 		}
 		return nil, nil, err

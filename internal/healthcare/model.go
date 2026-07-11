@@ -56,18 +56,19 @@ const (
 // --- roster: practitioners ---
 
 type Practitioner struct {
-	ID            int64     `db:"id" json:"id"`
-	Type          string    `db:"type" json:"type"`
-	FullName      string    `db:"full_name" json:"full_name"`
-	Specialty     *string   `db:"specialty" json:"specialty,omitempty"`
-	Phone         string    `db:"phone" json:"phone"`
-	Email         *string   `db:"email" json:"email,omitempty"`
-	LicenseNumber *string   `db:"license_number" json:"license_number,omitempty"`
-	Bio           *string   `db:"bio" json:"bio,omitempty"`
-	PhotoURL      *string   `db:"photo_url" json:"photo_url,omitempty"`
-	Status        string    `db:"status" json:"status"`
-	CreatedAt     time.Time `db:"created_at" json:"created_at"`
-	UpdatedAt     time.Time `db:"updated_at" json:"updated_at"`
+	ID            int64          `db:"id" json:"id"`
+	Type          string         `db:"type" json:"type"`
+	FullName      string         `db:"full_name" json:"full_name"`
+	Specialty     *string        `db:"specialty" json:"specialty,omitempty"`
+	Phone         string         `db:"phone" json:"phone"`
+	Email         *string        `db:"email" json:"email,omitempty"`
+	LicenseNumber *string        `db:"license_number" json:"license_number,omitempty"`
+	Bio           *string        `db:"bio" json:"bio,omitempty"`
+	Translations  types.JSONText `db:"translations" json:"translations,omitempty"`
+	PhotoURL      *string        `db:"photo_url" json:"photo_url,omitempty"`
+	Status        string         `db:"status" json:"status"`
+	CreatedAt     time.Time      `db:"created_at" json:"created_at"`
+	UpdatedAt     time.Time      `db:"updated_at" json:"updated_at"`
 }
 
 // PractitionerFilter drives the roster list query.
@@ -82,16 +83,17 @@ type PractitionerFilter struct {
 // --- catalog: categories ---
 
 type ServiceCategory struct {
-	ID          int64     `db:"id" json:"id"`
-	Name        string    `db:"name" json:"name"`
-	Slug        string    `db:"slug" json:"slug"`
-	Description *string   `db:"description" json:"description,omitempty"`
-	Icon        *string   `db:"icon" json:"icon,omitempty"`
-	ImageURL    *string   `db:"image_url" json:"image_url,omitempty"`
-	SortOrder   int       `db:"sort_order" json:"sort_order"`
-	IsActive    bool      `db:"is_active" json:"is_active"`
-	CreatedAt   time.Time `db:"created_at" json:"created_at"`
-	UpdatedAt   time.Time `db:"updated_at" json:"updated_at"`
+	ID           int64          `db:"id" json:"id"`
+	Name         string         `db:"name" json:"name"`
+	Slug         string         `db:"slug" json:"slug"`
+	Description  *string        `db:"description" json:"description,omitempty"`
+	Translations types.JSONText `db:"translations" json:"translations,omitempty"`
+	Icon         *string        `db:"icon" json:"icon,omitempty"`
+	ImageURL     *string        `db:"image_url" json:"image_url,omitempty"`
+	SortOrder    int            `db:"sort_order" json:"sort_order"`
+	IsActive     bool           `db:"is_active" json:"is_active"`
+	CreatedAt    time.Time      `db:"created_at" json:"created_at"`
+	UpdatedAt    time.Time      `db:"updated_at" json:"updated_at"`
 
 	// List-only aggregate.
 	ServiceCount int `db:"service_count" json:"service_count"`
@@ -105,6 +107,7 @@ type HealthcareService struct {
 	Name         string         `db:"name" json:"name"`
 	Slug         string         `db:"slug" json:"slug"`
 	Description  *string        `db:"description" json:"description,omitempty"`
+	Translations types.JSONText `db:"translations" json:"translations,omitempty"`
 	ServiceType  string         `db:"service_type" json:"service_type"`
 	FromPrice    *string        `db:"from_price" json:"from_price,omitempty"` // indicative (consultations)
 	Price        *string        `db:"price" json:"price,omitempty"`           // fixed (packages)
@@ -227,33 +230,36 @@ type RequestFilter struct {
 // --- settings ---
 
 type Settings struct {
-	EmergencyPhone *string   `db:"emergency_phone" json:"emergency_phone,omitempty"`
-	EmergencyHours *string   `db:"emergency_hours" json:"emergency_hours,omitempty"`
-	EmergencyNote  *string   `db:"emergency_note" json:"emergency_note,omitempty"`
-	UpdatedAt      time.Time `db:"updated_at" json:"updated_at"`
+	EmergencyPhone *string        `db:"emergency_phone" json:"emergency_phone,omitempty"`
+	EmergencyHours *string        `db:"emergency_hours" json:"emergency_hours,omitempty"`
+	EmergencyNote  *string        `db:"emergency_note" json:"emergency_note,omitempty"`
+	Translations   types.JSONText `db:"translations" json:"translations,omitempty"`
+	UpdatedAt      time.Time      `db:"updated_at" json:"updated_at"`
 }
 
 // --- request DTOs ---
 
 type PractitionerRequest struct {
-	Type          string  `json:"type"`
-	FullName      string  `json:"full_name"`
-	Specialty     *string `json:"specialty"`
-	Phone         string  `json:"phone"`
-	Email         *string `json:"email"`
-	LicenseNumber *string `json:"license_number"`
-	Bio           *string `json:"bio"`
-	PhotoURL      *string `json:"photo_url"`
-	Status        *string `json:"status"`
+	Type          string         `json:"type"`
+	FullName      string         `json:"full_name"`
+	Specialty     *string        `json:"specialty"`
+	Phone         string         `json:"phone"`
+	Email         *string        `json:"email"`
+	LicenseNumber *string        `json:"license_number"`
+	Bio           *string        `json:"bio"`
+	Translations  types.JSONText `json:"translations"`
+	PhotoURL      *string        `json:"photo_url"`
+	Status        *string        `json:"status"`
 }
 
 type ServiceCategoryRequest struct {
-	Name        string  `json:"name"`
-	Description *string `json:"description"`
-	Icon        *string `json:"icon"`
-	ImageURL    *string `json:"image_url"`
-	SortOrder   int     `json:"sort_order"`
-	IsActive    *bool   `json:"is_active"`
+	Name         string         `json:"name"`
+	Description  *string        `json:"description"`
+	Translations types.JSONText `json:"translations"`
+	Icon         *string        `json:"icon"`
+	ImageURL     *string        `json:"image_url"`
+	SortOrder    int            `json:"sort_order"`
+	IsActive     *bool          `json:"is_active"`
 }
 
 // StaffLine is one entry of a package's staff makeup in a service payload.
@@ -266,6 +272,7 @@ type ServiceRequest struct {
 	CategoryID   int64          `json:"category_id"`
 	Name         string         `json:"name"`
 	Description  *string        `json:"description"`
+	Translations types.JSONText `json:"translations"`
 	ServiceType  string         `json:"service_type"`
 	FromPrice    *string        `json:"from_price"`
 	Price        *string        `json:"price"`
@@ -319,9 +326,10 @@ type AssignRequest struct {
 }
 
 type SettingsRequest struct {
-	EmergencyPhone *string `json:"emergency_phone"`
-	EmergencyHours *string `json:"emergency_hours"`
-	EmergencyNote  *string `json:"emergency_note"`
+	EmergencyPhone *string        `json:"emergency_phone"`
+	EmergencyHours *string        `json:"emergency_hours"`
+	EmergencyNote  *string        `json:"emergency_note"`
+	Translations   types.JSONText `json:"translations"`
 }
 
 func derefBool(b *bool, def bool) bool {

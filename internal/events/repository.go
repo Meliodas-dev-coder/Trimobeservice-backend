@@ -52,7 +52,7 @@ func (r *Repository) InTx(ctx context.Context, fn func(tx *sqlx.Tx) error) error
 
 // --- service categories ---
 
-const categoryCols = `id, name, slug, description, icon, image_url, sort_order, is_active, created_at, updated_at`
+const categoryCols = `id, name, slug, description, translations, icon, image_url, sort_order, is_active, created_at, updated_at`
 
 func (r *Repository) ListCategories(ctx context.Context, activeOnly bool) ([]ServiceCategory, error) {
 	q := `SELECT ` + categoryCols + `,
@@ -96,9 +96,9 @@ func (r *Repository) CategorySlugExists(ctx context.Context, slug string, exclud
 
 func (r *Repository) CreateCategory(ctx context.Context, c *ServiceCategory) (int64, error) {
 	res, err := r.db.ExecContext(ctx,
-		`INSERT INTO event_service_categories (name, slug, description, icon, image_url, sort_order, is_active)
-		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		c.Name, c.Slug, c.Description, c.Icon, c.ImageURL, c.SortOrder, c.IsActive)
+		`INSERT INTO event_service_categories (name, slug, description, translations, icon, image_url, sort_order, is_active)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		c.Name, c.Slug, c.Description, nullableJSON(c.Translations), c.Icon, c.ImageURL, c.SortOrder, c.IsActive)
 	if err != nil {
 		return 0, mapWriteErr(err)
 	}
@@ -108,9 +108,9 @@ func (r *Repository) CreateCategory(ctx context.Context, c *ServiceCategory) (in
 func (r *Repository) UpdateCategory(ctx context.Context, c *ServiceCategory) error {
 	res, err := r.db.ExecContext(ctx,
 		`UPDATE event_service_categories
-		 SET name = ?, slug = ?, description = ?, icon = ?, image_url = ?, sort_order = ?, is_active = ?
+		 SET name = ?, slug = ?, description = ?, translations = ?, icon = ?, image_url = ?, sort_order = ?, is_active = ?
 		 WHERE id = ?`,
-		c.Name, c.Slug, c.Description, c.Icon, c.ImageURL, c.SortOrder, c.IsActive, c.ID)
+		c.Name, c.Slug, c.Description, nullableJSON(c.Translations), c.Icon, c.ImageURL, c.SortOrder, c.IsActive, c.ID)
 	if err != nil {
 		return mapWriteErr(err)
 	}
@@ -127,7 +127,7 @@ func (r *Repository) DeleteCategory(ctx context.Context, id int64) error {
 
 // --- services ---
 
-const serviceCols = `id, category_id, name, slug, description, from_price, price_unit, image_url, attributes, sort_order, is_active, created_at, updated_at`
+const serviceCols = `id, category_id, name, slug, description, translations, from_price, price_unit, image_url, attributes, sort_order, is_active, created_at, updated_at`
 
 // serviceListCols joins the category name for the admin table / public grouping.
 const serviceListCols = serviceCols + `,
@@ -203,9 +203,9 @@ func (r *Repository) ServiceSlugExists(ctx context.Context, slug string, exclude
 
 func (r *Repository) CreateService(ctx context.Context, s *EventService) (int64, error) {
 	res, err := r.db.ExecContext(ctx,
-		`INSERT INTO event_services (category_id, name, slug, description, from_price, price_unit, image_url, attributes, sort_order, is_active)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		s.CategoryID, s.Name, s.Slug, s.Description, s.FromPrice, s.PriceUnit, s.ImageURL, nullableJSON(s.Attributes), s.SortOrder, s.IsActive)
+		`INSERT INTO event_services (category_id, name, slug, description, translations, from_price, price_unit, image_url, attributes, sort_order, is_active)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		s.CategoryID, s.Name, s.Slug, s.Description, nullableJSON(s.Translations), s.FromPrice, s.PriceUnit, s.ImageURL, nullableJSON(s.Attributes), s.SortOrder, s.IsActive)
 	if err != nil {
 		return 0, mapWriteErr(err)
 	}
@@ -215,9 +215,9 @@ func (r *Repository) CreateService(ctx context.Context, s *EventService) (int64,
 func (r *Repository) UpdateService(ctx context.Context, s *EventService) error {
 	res, err := r.db.ExecContext(ctx,
 		`UPDATE event_services
-		 SET category_id = ?, name = ?, slug = ?, description = ?, from_price = ?, price_unit = ?, image_url = ?, attributes = ?, sort_order = ?, is_active = ?
+		 SET category_id = ?, name = ?, slug = ?, description = ?, translations = ?, from_price = ?, price_unit = ?, image_url = ?, attributes = ?, sort_order = ?, is_active = ?
 		 WHERE id = ?`,
-		s.CategoryID, s.Name, s.Slug, s.Description, s.FromPrice, s.PriceUnit, s.ImageURL, nullableJSON(s.Attributes), s.SortOrder, s.IsActive, s.ID)
+		s.CategoryID, s.Name, s.Slug, s.Description, nullableJSON(s.Translations), s.FromPrice, s.PriceUnit, s.ImageURL, nullableJSON(s.Attributes), s.SortOrder, s.IsActive, s.ID)
 	if err != nil {
 		return mapWriteErr(err)
 	}
@@ -255,7 +255,7 @@ func (r *Repository) GetServiceRowsTx(ctx context.Context, tx *sqlx.Tx, ids []in
 
 // --- artists ---
 
-const artistCols = `id, stage_name, slug, tagline, bio, home_base, photo_url, group_size,
+const artistCols = `id, stage_name, slug, tagline, bio, translations, home_base, photo_url, group_size,
 	genres, formats, languages, occasions, sample_links, social_links, from_fee,
 	is_featured, sort_order, is_active, created_at, updated_at`
 
@@ -329,10 +329,10 @@ func (r *Repository) ArtistSlugExists(ctx context.Context, slug string, excludeI
 
 func (r *Repository) CreateArtist(ctx context.Context, a *Artist) (int64, error) {
 	res, err := r.db.ExecContext(ctx,
-		`INSERT INTO artists (stage_name, slug, tagline, bio, home_base, photo_url, group_size,
+		`INSERT INTO artists (stage_name, slug, tagline, bio, translations, home_base, photo_url, group_size,
 			genres, formats, languages, occasions, sample_links, social_links, from_fee, is_featured, sort_order, is_active)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		a.StageName, a.Slug, a.Tagline, a.Bio, a.HomeBase, a.PhotoURL, a.GroupSize,
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		a.StageName, a.Slug, a.Tagline, a.Bio, nullableJSON(a.Translations), a.HomeBase, a.PhotoURL, a.GroupSize,
 		a.Genres, a.Formats, a.Languages, a.Occasions, a.SampleLinks, a.SocialLinks, a.FromFee, a.IsFeatured, a.SortOrder, a.IsActive)
 	if err != nil {
 		return 0, mapWriteErr(err)
@@ -343,11 +343,11 @@ func (r *Repository) CreateArtist(ctx context.Context, a *Artist) (int64, error)
 func (r *Repository) UpdateArtist(ctx context.Context, a *Artist) error {
 	res, err := r.db.ExecContext(ctx,
 		`UPDATE artists
-		 SET stage_name = ?, slug = ?, tagline = ?, bio = ?, home_base = ?, photo_url = ?, group_size = ?,
+		 SET stage_name = ?, slug = ?, tagline = ?, bio = ?, translations = ?, home_base = ?, photo_url = ?, group_size = ?,
 			 genres = ?, formats = ?, languages = ?, occasions = ?, sample_links = ?, social_links = ?,
 			 from_fee = ?, is_featured = ?, sort_order = ?, is_active = ?
 		 WHERE id = ?`,
-		a.StageName, a.Slug, a.Tagline, a.Bio, a.HomeBase, a.PhotoURL, a.GroupSize,
+		a.StageName, a.Slug, a.Tagline, a.Bio, nullableJSON(a.Translations), a.HomeBase, a.PhotoURL, a.GroupSize,
 		a.Genres, a.Formats, a.Languages, a.Occasions, a.SampleLinks, a.SocialLinks,
 		a.FromFee, a.IsFeatured, a.SortOrder, a.IsActive, a.ID)
 	if err != nil {

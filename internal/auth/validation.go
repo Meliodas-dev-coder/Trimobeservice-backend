@@ -14,6 +14,11 @@ func validateRegister(req RegisterRequest) map[string]string {
 	if utf8.RuneCountInString(req.Password) < 8 {
 		problems["password"] = "must be at least 8 characters"
 	}
+	// bcrypt ignores any bytes past the 72nd, so a longer password would be
+	// silently truncated (a weaker credential than the user believes). Reject it.
+	if len(req.Password) > 72 {
+		problems["password"] = "must be at most 72 bytes"
+	}
 	if strings.TrimSpace(req.FullName) == "" {
 		problems["full_name"] = "is required"
 	}

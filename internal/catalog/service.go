@@ -71,14 +71,15 @@ func (s *Service) CreateCategory(ctx context.Context, req CategoryRequest) (*Cat
 		return nil, err
 	}
 	c := &Category{
-		ParentID:    req.ParentID,
-		Name:        strings.TrimSpace(req.Name),
-		Slug:        slug,
-		TemplateKey: templateKey,
-		Description: req.Description,
-		ImageURL:    req.ImageURL,
-		SortOrder:   req.SortOrder,
-		IsActive:    derefBool(req.IsActive, true),
+		ParentID:     req.ParentID,
+		Name:         strings.TrimSpace(req.Name),
+		Slug:         slug,
+		TemplateKey:  templateKey,
+		Description:  req.Description,
+		Translations: req.Translations,
+		ImageURL:     req.ImageURL,
+		SortOrder:    req.SortOrder,
+		IsActive:     derefBool(req.IsActive, true),
 	}
 	id, err := s.repo.CreateCategory(ctx, c)
 	if err != nil {
@@ -113,6 +114,7 @@ func (s *Service) UpdateCategory(ctx context.Context, id int64, req CategoryRequ
 	c.Slug = slug
 	c.TemplateKey = templateKey
 	c.Description = req.Description
+	c.Translations = req.Translations
 	c.ImageURL = req.ImageURL
 	c.SortOrder = req.SortOrder
 	if req.IsActive != nil {
@@ -140,11 +142,12 @@ func (s *Service) CreateBrand(ctx context.Context, req BrandRequest) (*Brand, er
 		return nil, err
 	}
 	b := &Brand{
-		Name:       strings.TrimSpace(req.Name),
-		Slug:       slug,
-		Department: departmentOrDefault(req.Department),
-		LogoURL:    req.LogoURL,
-		IsActive:   derefBool(req.IsActive, true),
+		Name:         strings.TrimSpace(req.Name),
+		Slug:         slug,
+		Translations: req.Translations,
+		Department:   departmentOrDefault(req.Department),
+		LogoURL:      req.LogoURL,
+		IsActive:     derefBool(req.IsActive, true),
 	}
 	id, err := s.repo.CreateBrand(ctx, b)
 	if err != nil {
@@ -164,6 +167,7 @@ func (s *Service) UpdateBrand(ctx context.Context, id int64, req BrandRequest) (
 	}
 	b.Name = strings.TrimSpace(req.Name)
 	b.Slug = slug
+	b.Translations = req.Translations
 	b.Department = departmentOrDefault(req.Department)
 	b.LogoURL = req.LogoURL
 	if req.IsActive != nil {
@@ -217,13 +221,14 @@ func (s *Service) CreateProduct(ctx context.Context, req ProductRequest) (*Produ
 		return nil, err
 	}
 	p := &Product{
-		CategoryID:  req.CategoryID,
-		BrandID:     req.BrandID,
-		Name:        strings.TrimSpace(req.Name),
-		Slug:        slug,
-		Description: req.Description,
-		Attributes:  attrs,
-		IsActive:    derefBool(req.IsActive, true),
+		CategoryID:   req.CategoryID,
+		BrandID:      req.BrandID,
+		Name:         strings.TrimSpace(req.Name),
+		Slug:         slug,
+		Description:  req.Description,
+		Translations: req.Translations,
+		Attributes:   attrs,
+		IsActive:     derefBool(req.IsActive, true),
 	}
 	id, err := s.repo.CreateProduct(ctx, p)
 	if err != nil {
@@ -256,6 +261,7 @@ func (s *Service) UpdateProduct(ctx context.Context, id int64, req ProductReques
 	p.Name = strings.TrimSpace(req.Name)
 	p.Slug = slug
 	p.Description = req.Description
+	p.Translations = req.Translations
 	p.Attributes = attrs
 	if req.IsActive != nil {
 		p.IsActive = *req.IsActive

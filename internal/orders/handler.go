@@ -9,14 +9,41 @@ import (
 
 	"github.com/trimo/backend/internal/auth"
 	"github.com/trimo/backend/internal/httpx"
+	"github.com/trimo/backend/internal/realtime"
 )
 
 type Handler struct {
 	svc *Service
+	pub realtime.Publisher
 }
 
 func NewHandler(svc *Service) *Handler {
 	return &Handler{svc: svc}
+}
+
+// SetPublisher wires the realtime hub so newly created orders are streamed to
+// admins. Nil-safe: leaving it unset disables realtime for orders.
+func (h *Handler) SetPublisher(p realtime.Publisher) { h.pub = p }
+
+func (h *Handler) publishCreated(o *OrderDetail) { h.publish("order.created", o) }
+func (h *Handler) publishStatus(o *OrderDetail)  { h.publish("order.status_changed", o) }
+
+func (h *Handler) publish(evtType string, o *OrderDetail) {
+	if h.pub == nil || o == nil {
+		return
+	}
+	h.pub.Publish(realtime.Event{
+		Type: evtType,
+		Payload: map[string]any{
+			"id":             o.ID,
+			"number":         o.OrderNumber,
+			"customer_name":  o.CustomerName,
+			"amount":         o.Total,
+			"status":         o.Status,
+			"payment_status": o.PaymentStatus,
+			"fulfillment":    o.FulfillmentType,
+		},
+	})
 }
 
 // ===================== client: cart =====================
@@ -130,6 +157,7 @@ func (h *Handler) Checkout(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
+	h.publishCreated(order)
 	httpx.JSON(w, http.StatusCreated, httpx.Envelope{"order": order})
 }
 
@@ -181,6 +209,7 @@ func (h *Handler) CancelOrder(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
+	h.publishStatus(order)
 	httpx.JSON(w, http.StatusOK, httpx.Envelope{"order": order})
 }
 
@@ -221,6 +250,7 @@ func (h *Handler) CreateOrderAdmin(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
+	h.publishCreated(order)
 	httpx.JSON(w, http.StatusCreated, httpx.Envelope{"order": order})
 }
 
@@ -255,6 +285,7 @@ func (h *Handler) UpdateOrderStatus(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
+	h.publishStatus(order)
 	httpx.JSON(w, http.StatusOK, httpx.Envelope{"order": order})
 }
 

@@ -25,6 +25,8 @@ import (
 	"github.com/trimo/backend/internal/mobility"
 	"github.com/trimo/backend/internal/orders"
 	"github.com/trimo/backend/internal/payments"
+	"github.com/trimo/backend/internal/ratelimit"
+	"github.com/trimo/backend/internal/realtime"
 	"github.com/trimo/backend/internal/server"
 	"github.com/trimo/backend/internal/storage"
 	"github.com/trimo/backend/internal/uploads"
@@ -96,9 +98,21 @@ func run() error {
 	customersHandler := customers.NewHandler(customers.NewService(customers.NewRepository(db)))
 	dashboardHandler := dashboard.NewHandler(dashboard.NewService(dashboard.NewRepository(db)))
 
+	// Realtime hub: streams newly created orders/bookings/requests to connected
+	// admins over SSE. Handlers publish through it (nil-safe if left unset).
+	hub := realtime.NewHub()
+	ordersHandler.SetPublisher(hub)
+	bookingsHandler.SetPublisher(hub)
+	eventsHandler.SetPublisher(hub)
+	healthcareHandler.SetPublisher(hub)
+	paymentsHandler.SetPublisher(hub)
+
+	// Strict per-IP limiter for the credential endpoints (login/register/refresh).
+	authThrottle := ratelimit.New(cfg.HTTP.AuthRateLimitRPS, cfg.HTTP.AuthRateLimitBurst).Middleware
+
 	srv := server.New(cfg, log, db)
 	srv.MountAPI(func(r chi.Router) {
-		auth.RegisterRoutes(r, authHandler, authMW)
+		auth.RegisterRoutes(r, authHandler, authMW, authThrottle)
 		catalog.RegisterRoutes(r, catalogHandler, authMW.RequireAdmin)
 		mobility.RegisterRoutes(r, mobilityHandler, authMW.RequireAdmin)
 		orders.RegisterRoutes(r, ordersHandler, authMW.RequireAuth, authMW.RequireAdmin)
@@ -108,6 +122,7 @@ func run() error {
 		payments.RegisterRoutes(r, paymentsHandler, authMW.RequireAdmin)
 		customers.RegisterRoutes(r, customersHandler, authMW.RequireAdmin)
 		dashboard.RegisterRoutes(r, dashboardHandler, authMW.RequireAdmin)
+		realtime.RegisterRoutes(r, hub, authMW.RequireAdmin)
 		if uploadsHandler != nil {
 			uploads.RegisterRoutes(r, uploadsHandler, authMW.RequireAdmin)
 		}
@@ -115,6 +130,10 @@ func run() error {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+
+	// On shutdown signal, end open SSE streams promptly so graceful shutdown
+	// doesn't wait on long-lived connections.
+	context.AfterFunc(ctx, hub.Close)
 
 	// Background sweeper: release stock from pickup orders whose 24h hold lapsed.
 	go runPickupSweeper(ctx, log, ordersSvc)

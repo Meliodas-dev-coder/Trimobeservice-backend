@@ -8,6 +8,7 @@ import (
 
 	"github.com/go-sql-driver/mysql"
 	"github.com/jmoiron/sqlx"
+	"github.com/jmoiron/sqlx/types"
 )
 
 var (
@@ -32,7 +33,7 @@ const dayBookedStatuses = "'confirmed','driver_assigned','active','completed'"
 
 // --- car categories ---
 
-const carCategoryCols = `id, name, slug, description, default_daily_rate,
+const carCategoryCols = `id, name, slug, description, translations, default_daily_rate,
 	is_cargo_transport, cargo_per_km_rate, cargo_minimum_rate,
 	sort_order, is_active, created_at, updated_at`
 
@@ -70,10 +71,10 @@ func (r *Repository) CarCategorySlugExists(ctx context.Context, slug string, exc
 
 func (r *Repository) CreateCarCategory(ctx context.Context, c *CarCategory) (int64, error) {
 	res, err := r.db.ExecContext(ctx,
-		`INSERT INTO car_categories (name, slug, description, default_daily_rate,
+		`INSERT INTO car_categories (name, slug, description, translations, default_daily_rate,
 		 is_cargo_transport, cargo_per_km_rate, cargo_minimum_rate, sort_order, is_active)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		c.Name, c.Slug, c.Description, c.DefaultDailyRate, c.IsCargoTransport,
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		c.Name, c.Slug, c.Description, nullableJSON(c.Translations), c.DefaultDailyRate, c.IsCargoTransport,
 		c.CargoPerKmRate, c.CargoMinimumRate, c.SortOrder, c.IsActive)
 	if err != nil {
 		return 0, mapWriteErr(err)
@@ -84,11 +85,11 @@ func (r *Repository) CreateCarCategory(ctx context.Context, c *CarCategory) (int
 func (r *Repository) UpdateCarCategory(ctx context.Context, c *CarCategory) error {
 	res, err := r.db.ExecContext(ctx,
 		`UPDATE car_categories
-		 SET name = ?, slug = ?, description = ?, default_daily_rate = ?,
+		 SET name = ?, slug = ?, description = ?, translations = ?, default_daily_rate = ?,
 		     is_cargo_transport = ?, cargo_per_km_rate = ?, cargo_minimum_rate = ?,
 		     sort_order = ?, is_active = ?
 		 WHERE id = ?`,
-		c.Name, c.Slug, c.Description, c.DefaultDailyRate, c.IsCargoTransport,
+		c.Name, c.Slug, c.Description, nullableJSON(c.Translations), c.DefaultDailyRate, c.IsCargoTransport,
 		c.CargoPerKmRate, c.CargoMinimumRate, c.SortOrder, c.IsActive, c.ID)
 	if err != nil {
 		return mapWriteErr(err)
@@ -124,7 +125,7 @@ const carCols = `cars.id, cars.category_id, cars.name, cars.slug, cars.make, car
 	(SELECT cc.is_cargo_transport FROM car_categories cc WHERE cc.id = cars.category_id) AS is_cargo_transport,
 	(SELECT cc.cargo_per_km_rate FROM car_categories cc WHERE cc.id = cars.category_id) AS cargo_per_km_rate,
 	(SELECT cc.cargo_minimum_rate FROM car_categories cc WHERE cc.id = cars.category_id) AS cargo_minimum_rate,
-	cars.attributes, cars.description, cars.status AS base_status, ` + carEffectiveStatusExpr + ` AS status,
+	cars.attributes, cars.description, cars.translations, cars.status AS base_status, ` + carEffectiveStatusExpr + ` AS status,
 	(SELECT ci.url FROM car_images ci WHERE ci.car_id = cars.id ORDER BY ci.is_primary DESC, ci.sort_order, ci.id LIMIT 1) AS primary_image_url,
 	cars.created_at, cars.updated_at`
 
@@ -217,10 +218,10 @@ func (r *Repository) PlateExists(ctx context.Context, plate string, excludeID in
 func (r *Repository) CreateCar(ctx context.Context, c *Car) (int64, error) {
 	res, err := r.db.ExecContext(ctx,
 		`INSERT INTO cars (category_id, name, slug, make, model, year, registration_plate, color, seats,
-		 transmission, fuel_type, daily_rate, attributes, description, status)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		 transmission, fuel_type, daily_rate, attributes, description, translations, status)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		c.CategoryID, c.Name, c.Slug, c.Make, c.Model, c.Year, c.RegistrationPlate, c.Color, c.Seats,
-		c.Transmission, c.FuelType, c.DailyRate, c.Attributes, c.Description, c.Status)
+		c.Transmission, c.FuelType, c.DailyRate, c.Attributes, c.Description, nullableJSON(c.Translations), c.Status)
 	if err != nil {
 		return 0, mapWriteErr(err)
 	}
@@ -232,10 +233,10 @@ func (r *Repository) UpdateCar(ctx context.Context, c *Car) error {
 		`UPDATE cars
 		 SET category_id = ?, name = ?, slug = ?, make = ?, model = ?, year = ?, registration_plate = ?,
 		     color = ?, seats = ?, transmission = ?, fuel_type = ?, daily_rate = ?, attributes = ?,
-		     description = ?, status = ?
+		     description = ?, translations = ?, status = ?
 		 WHERE id = ?`,
 		c.CategoryID, c.Name, c.Slug, c.Make, c.Model, c.Year, c.RegistrationPlate, c.Color, c.Seats,
-		c.Transmission, c.FuelType, c.DailyRate, c.Attributes, c.Description, c.Status, c.ID)
+		c.Transmission, c.FuelType, c.DailyRate, c.Attributes, c.Description, nullableJSON(c.Translations), c.Status, c.ID)
 	if err != nil {
 		return mapWriteErr(err)
 	}
@@ -464,4 +465,12 @@ func mapWriteErr(err error) error {
 		}
 	}
 	return err
+}
+
+// nullableJSON returns nil for empty JSON so nullable JSON columns store SQL NULL.
+func nullableJSON(j types.JSONText) any {
+	if len(strings.TrimSpace(string(j))) == 0 {
+		return nil
+	}
+	return j
 }
