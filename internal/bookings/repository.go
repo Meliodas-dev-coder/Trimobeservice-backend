@@ -187,14 +187,18 @@ func (r *Repository) CarOverlaps(ctx context.Context, carID, excludeID int64, st
 	return r.HasCarOverlap(ctx, r.db, carID, excludeID, start, end)
 }
 
-// ListOccupiedRanges returns the occupying booking windows for a car that end
-// after `from`, ordered by start. The status set must mirror the DB triggers.
-func (r *Repository) ListOccupiedRanges(ctx context.Context, carID int64, from time.Time) ([]BookedRange, error) {
+// ListBookedRanges returns every booking window for a car (for the client
+// calendar), excluding only cancelled ones — a cancelled booking frees the car,
+// so it must not paint days red. `from` bounds how far back we look so the
+// calendar shows recent history plus everything current/upcoming. This is a
+// display feed only; double-booking enforcement uses CarOverlaps + the DB
+// triggers (the occupying-status set), which is intentionally narrower.
+func (r *Repository) ListBookedRanges(ctx context.Context, carID int64, from time.Time) ([]BookedRange, error) {
 	out := []BookedRange{}
 	err := r.db.SelectContext(ctx, &out,
 		`SELECT start_at, end_at FROM bookings
 		 WHERE car_id = ?
-		   AND status IN ('confirmed','driver_assigned','active')
+		   AND status <> 'cancelled'
 		   AND end_at > ?
 		 ORDER BY start_at`, carID, from)
 	return out, err

@@ -56,13 +56,15 @@ func (s *Service) CheckAvailability(ctx context.Context, carID int64, start, end
 	return &AvailabilityResult{CarID: carID, StartAt: start, EndAt: end, Available: available}, nil
 }
 
-// BookedRanges lists a car's current and upcoming occupied windows (read-only),
-// so clients can disable those dates up front instead of failing on submit.
+// BookedRanges lists a car's booking windows for the client calendar: every
+// non-cancelled booking that ended within the last ~6 months or is current/
+// upcoming, so clients see the car's recent and future schedule (cancelled
+// bookings free the car and are excluded).
 func (s *Service) BookedRanges(ctx context.Context, carID int64) ([]BookedRange, error) {
 	if _, err := s.repo.GetCar(ctx, carID); err != nil {
 		return nil, err
 	}
-	return s.repo.ListOccupiedRanges(ctx, carID, time.Now())
+	return s.repo.ListBookedRanges(ctx, carID, time.Now().AddDate(0, -6, 0))
 }
 
 // Create books a car for a date range. It locks the car row, verifies the car

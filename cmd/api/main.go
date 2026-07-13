@@ -4,6 +4,7 @@ package main
 import (
 	"context"
 	"log/slog"
+	"net/http"
 	"os"
 	"os/signal"
 	"strings"
@@ -13,6 +14,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/joho/godotenv"
 
+	"github.com/trimo/backend/internal/audit"
 	"github.com/trimo/backend/internal/auth"
 	"github.com/trimo/backend/internal/bookings"
 	"github.com/trimo/backend/internal/catalog"
@@ -98,6 +100,15 @@ func run() error {
 	customersHandler := customers.NewHandler(customers.NewService(customers.NewRepository(db)))
 	dashboardHandler := dashboard.NewHandler(dashboard.NewService(dashboard.NewRepository(db)))
 
+	// Audit trail: one service feeds both the read endpoint and the middleware
+	// that records every admin write. `auditedAdmin` = RequireAdmin + recording,
+	// so wrapping it around a route group logs that group's writes automatically.
+	auditSvc := audit.NewService(audit.NewRepository(db), log)
+	auditHandler := audit.NewHandler(auditSvc)
+	auditedAdmin := func(next http.Handler) http.Handler {
+		return authMW.RequireAdmin(audit.NewMiddleware(auditSvc).Record(next))
+	}
+
 	// Realtime hub: streams newly created orders/bookings/requests to connected
 	// admins over SSE. Handlers publish through it (nil-safe if left unset).
 	hub := realtime.NewHub()
@@ -113,18 +124,22 @@ func run() error {
 	srv := server.New(cfg, log, db)
 	srv.MountAPI(func(r chi.Router) {
 		auth.RegisterRoutes(r, authHandler, authMW, authThrottle)
-		catalog.RegisterRoutes(r, catalogHandler, authMW.RequireAdmin)
-		mobility.RegisterRoutes(r, mobilityHandler, authMW.RequireAdmin)
-		orders.RegisterRoutes(r, ordersHandler, authMW.RequireAuth, authMW.RequireAdmin)
-		bookings.RegisterRoutes(r, bookingsHandler, authMW.RequireAuth, authMW.RequireAdmin)
-		events.RegisterRoutes(r, eventsHandler, authMW.RequireAuth, authMW.RequireAdmin)
-		healthcare.RegisterRoutes(r, healthcareHandler, authMW.RequireAuth, authMW.RequireAdmin)
-		payments.RegisterRoutes(r, paymentsHandler, authMW.RequireAdmin)
+		// Mutating admin modules are wrapped with `auditedAdmin` so their writes
+		// are recorded. Read-only modules (customers, dashboard, realtime SSE)
+		// and the audit reader itself stay on plain RequireAdmin.
+		catalog.RegisterRoutes(r, catalogHandler, auditedAdmin)
+		mobility.RegisterRoutes(r, mobilityHandler, auditedAdmin)
+		orders.RegisterRoutes(r, ordersHandler, authMW.RequireAuth, auditedAdmin)
+		bookings.RegisterRoutes(r, bookingsHandler, authMW.RequireAuth, auditedAdmin)
+		events.RegisterRoutes(r, eventsHandler, authMW.RequireAuth, auditedAdmin)
+		healthcare.RegisterRoutes(r, healthcareHandler, authMW.RequireAuth, auditedAdmin)
+		payments.RegisterRoutes(r, paymentsHandler, auditedAdmin)
 		customers.RegisterRoutes(r, customersHandler, authMW.RequireAdmin)
 		dashboard.RegisterRoutes(r, dashboardHandler, authMW.RequireAdmin)
+		audit.RegisterRoutes(r, auditHandler, authMW.RequireAdmin)
 		realtime.RegisterRoutes(r, hub, authMW.RequireAdmin)
 		if uploadsHandler != nil {
-			uploads.RegisterRoutes(r, uploadsHandler, authMW.RequireAdmin)
+			uploads.RegisterRoutes(r, uploadsHandler, auditedAdmin)
 		}
 	})
 
