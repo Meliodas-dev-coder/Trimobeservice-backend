@@ -30,6 +30,7 @@ func RegisterRoutes(r chi.Router, h *Handler, requireAuth, requireAdmin func(htt
 		r.Get("/admin/bookings", h.ListAdmin)
 		r.Post("/admin/bookings", h.CreateAdmin)
 		r.Get("/admin/bookings/{id}", h.GetAdmin)
+		r.Delete("/admin/bookings/{id}", h.DeleteAdmin)
 		r.Post("/admin/bookings/{id}/assign-driver", h.AssignDriver)
 		r.Patch("/admin/bookings/{id}/status", h.UpdateStatus)
 		// Payment confirmation is handled by the payments module

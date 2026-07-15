@@ -50,7 +50,7 @@ func (r *Repository) InTx(ctx context.Context, fn func(tx *sqlx.Tx) error) error
 func (r *Repository) LockCar(ctx context.Context, tx *sqlx.Tx, carID int64) (*carRow, error) {
 	var c carRow
 	err := sqlx.GetContext(ctx, tx, &c,
-		`SELECT c.id, c.name, c.daily_rate, c.status, c.category_id,
+		`SELECT c.id, c.name, c.daily_rate, c.outside_antananarivo_daily_rate, c.status, c.category_id,
 		        cc.is_cargo_transport, cc.cargo_per_km_rate, cc.cargo_minimum_rate
 		   FROM cars c
 		   JOIN car_categories cc ON cc.id = c.category_id
@@ -67,7 +67,7 @@ func (r *Repository) LockCar(ctx context.Context, tx *sqlx.Tx, carID int64) (*ca
 func (r *Repository) GetCar(ctx context.Context, carID int64) (*carRow, error) {
 	var c carRow
 	err := r.db.GetContext(ctx, &c,
-		`SELECT c.id, c.name, c.daily_rate, c.status, c.category_id,
+		`SELECT c.id, c.name, c.daily_rate, c.outside_antananarivo_daily_rate, c.status, c.category_id,
 		        cc.is_cargo_transport, cc.cargo_per_km_rate, cc.cargo_minimum_rate
 		   FROM cars c
 		   JOIN car_categories cc ON cc.id = c.category_id
@@ -159,12 +159,12 @@ func (r *Repository) HasDriverOverlap(ctx context.Context, q sqlx.QueryerContext
 func (r *Repository) InsertBooking(ctx context.Context, tx *sqlx.Tx, b *Booking) (int64, error) {
 	res, err := tx.ExecContext(ctx,
 		`INSERT INTO bookings (user_id, customer_name, car_id, driver_id, booking_number, status, payment_status,
-		 start_at, end_at, days, daily_rate_snapshot, fees, total_price,
+		 start_at, end_at, days, daily_rate_snapshot, outside_antananarivo, fees, total_price,
 		 pricing_model, distance_km, cargo_per_km_rate_snapshot, cargo_minimum_rate_snapshot,
 		 car_name, car_category, pickup_location, dropoff_location, contact_phone, note)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		b.UserID, b.CustomerName, b.CarID, b.DriverID, b.BookingNumber, b.Status, b.PaymentStatus,
-		b.StartAt, b.EndAt, b.Days, b.DailyRateSnapshot, b.Fees, b.TotalPrice,
+		b.StartAt, b.EndAt, b.Days, b.DailyRateSnapshot, b.OutsideAntananarivo, b.Fees, b.TotalPrice,
 		b.PricingModel, b.DistanceKm, b.CargoPerKmRate, b.CargoMinimumRate,
 		b.CarName, b.CarCategory, b.PickupLocation, b.DropoffLocation, b.ContactPhone, b.Note)
 	if err != nil {
@@ -221,12 +221,44 @@ func (r *Repository) MarkPaid(ctx context.Context, id int64) error {
 	return notFoundIfNoRows(res, ErrBookingNotFound)
 }
 
+// DeleteBooking removes a booking only while it has no payment history. The
+// booking row is locked so a concurrent payment cannot be recorded between the
+// eligibility check and the delete.
+func (r *Repository) DeleteBooking(ctx context.Context, id int64) error {
+	return r.InTx(ctx, func(tx *sqlx.Tx) error {
+		var paymentStatus string
+		err := tx.GetContext(ctx, &paymentStatus,
+			`SELECT payment_status FROM bookings WHERE id = ? FOR UPDATE`, id)
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrBookingNotFound
+		}
+		if err != nil {
+			return err
+		}
+
+		var paymentCount int
+		if err := tx.GetContext(ctx, &paymentCount,
+			`SELECT COUNT(*) FROM payments WHERE payable_type = 'booking' AND payable_id = ?`, id); err != nil {
+			return err
+		}
+		if paymentStatus != PaymentUnpaid || paymentCount > 0 {
+			return ErrBookingHasPayments
+		}
+
+		res, err := tx.ExecContext(ctx, `DELETE FROM bookings WHERE id = ?`, id)
+		if err != nil {
+			return err
+		}
+		return notFoundIfNoRows(res, ErrBookingNotFound)
+	})
+}
+
 // --- booking reads ---
 
 const bookingCols = `id, user_id,
 	COALESCE(customer_name, (SELECT full_name FROM users u WHERE u.id = bookings.user_id)) AS customer_name,
 	car_id, driver_id, booking_number, status, payment_status,
-	start_at, end_at, days, daily_rate_snapshot, fees, total_price,
+	start_at, end_at, days, daily_rate_snapshot, outside_antananarivo, fees, total_price,
 	pricing_model, distance_km, cargo_per_km_rate_snapshot, cargo_minimum_rate_snapshot,
 	car_name, car_category, pickup_location, dropoff_location, contact_phone, note,
 	paid_at, created_at, updated_at`

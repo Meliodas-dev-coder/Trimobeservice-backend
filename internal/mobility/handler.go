@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
@@ -30,7 +31,7 @@ func (h *Handler) ListCategoriesPublic(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) ListCarsPublic(w http.ResponseWriter, r *http.Request) {
-	h.listCars(w, r, CarStatusAvailable, true)
+	h.listCars(w, r, "", true, true)
 }
 
 func (h *Handler) GetCarPublic(w http.ResponseWriter, r *http.Request) {
@@ -106,7 +107,7 @@ func (h *Handler) DeleteCategory(w http.ResponseWriter, r *http.Request) {
 // ===================== admin: cars =====================
 
 func (h *Handler) ListCarsAdmin(w http.ResponseWriter, r *http.Request) {
-	h.listCars(w, r, r.URL.Query().Get("status"), false)
+	h.listCars(w, r, r.URL.Query().Get("status"), false, false)
 }
 
 func (h *Handler) GetCarAdmin(w http.ResponseWriter, r *http.Request) {
@@ -300,15 +301,30 @@ func (h *Handler) DeleteDriver(w http.ResponseWriter, r *http.Request) {
 
 // ===================== shared helpers =====================
 
-func (h *Handler) listCars(w http.ResponseWriter, r *http.Request, status string, includeBooked bool) {
+func (h *Handler) listCars(w http.ResponseWriter, r *http.Request, status string, includeBooked, excludeInactive bool) {
 	q := r.URL.Query()
 	limit, page := parsePage(r)
 	f := CarFilter{
-		Search:        q.Get("q"),
-		Status:        status,
-		IncludeBooked: includeBooked,
-		Limit:         limit,
-		Offset:        (page - 1) * limit,
+		Search:          q.Get("q"),
+		Status:          status,
+		IncludeBooked:   includeBooked,
+		ExcludeInactive: excludeInactive,
+		Limit:           limit,
+		Offset:          (page - 1) * limit,
+	}
+	if startRaw, endRaw := q.Get("start"), q.Get("end"); startRaw != "" || endRaw != "" {
+		if startRaw == "" || endRaw == "" {
+			httpx.Error(w, http.StatusBadRequest, "start and end must be provided together")
+			return
+		}
+		start, startErr := time.Parse(time.RFC3339, startRaw)
+		end, endErr := time.Parse(time.RFC3339, endRaw)
+		if startErr != nil || endErr != nil || !end.After(start) {
+			httpx.Error(w, http.StatusBadRequest, "start and end must be valid RFC3339 timestamps")
+			return
+		}
+		f.AvailableStart = &start
+		f.AvailableEnd = &end
 	}
 	if v := q.Get("category_id"); v != "" {
 		if id, err := strconv.ParseInt(v, 10, 64); err == nil {
@@ -372,7 +388,7 @@ func writeError(w http.ResponseWriter, err error) {
 		errors.Is(err, ErrPhoneTaken),
 		errors.Is(err, ErrLicenseTaken):
 		httpx.Error(w, http.StatusConflict, err.Error())
-	case errors.Is(err, ErrInvalidCategory):
+	case errors.Is(err, ErrInvalidCategory), errors.Is(err, ErrOutsideCategoryRateRequired), errors.Is(err, ErrOutsideRateRequired):
 		httpx.Error(w, http.StatusUnprocessableEntity, err.Error())
 	default:
 		httpx.Error(w, http.StatusInternalServerError, "internal server error")

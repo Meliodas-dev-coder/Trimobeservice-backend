@@ -15,17 +15,19 @@ import (
 const carStatusAvailable = "available"
 
 var (
-	ErrCarUnavailable    = errors.New("car is not available for hire")
-	ErrCarNotFree        = errors.New("car is already booked for the selected dates")
-	ErrInvalidDates      = errors.New("end must be after start")
-	ErrPastStart         = errors.New("start date must be in the future")
-	ErrDriverInactive    = errors.New("driver is not active")
-	ErrDriverBusy        = errors.New("driver is already assigned for the selected dates")
-	ErrNotAssignable     = errors.New("driver can only be assigned to a confirmed booking")
-	ErrInvalidTransition = errors.New("invalid status transition")
-	ErrNotCancellable    = errors.New("booking can no longer be cancelled")
-	ErrDistanceRequired  = errors.New("distance_km and dropoff_location are required for cargo bookings")
-	ErrInvalidDistance   = errors.New("distance_km must be a positive decimal distance")
+	ErrCarUnavailable       = errors.New("car is not available for hire")
+	ErrCarNotFree           = errors.New("car is already booked for the selected dates")
+	ErrInvalidDates         = errors.New("end must be after start")
+	ErrPastStart            = errors.New("start date must be in the future")
+	ErrDriverInactive       = errors.New("driver is not active")
+	ErrDriverBusy           = errors.New("driver is already assigned for the selected dates")
+	ErrNotAssignable        = errors.New("driver can only be assigned to a confirmed booking")
+	ErrInvalidTransition    = errors.New("invalid status transition")
+	ErrNotCancellable       = errors.New("booking can no longer be cancelled")
+	ErrDistanceRequired     = errors.New("distance_km and dropoff_location are required for cargo bookings")
+	ErrInvalidDistance      = errors.New("distance_km must be a positive decimal distance")
+	ErrRegionChoiceRequired = errors.New("outside_antananarivo must be selected for standard car bookings")
+	ErrBookingHasPayments   = errors.New("bookings with payment history cannot be deleted")
 )
 
 type Service struct {
@@ -77,14 +79,15 @@ func (s *Service) Create(ctx context.Context, userID int64, req CreateBookingReq
 
 func (s *Service) CreateAdmin(ctx context.Context, req AdminCreateBookingRequest) (*BookingDetail, error) {
 	return s.create(ctx, req.UserID, req.CustomerName, req.DriverID, CreateBookingRequest{
-		CarID:           req.CarID,
-		StartAt:         req.StartAt,
-		EndAt:           req.EndAt,
-		PickupLocation:  req.PickupLocation,
-		DropoffLocation: req.DropoffLocation,
-		ContactPhone:    req.ContactPhone,
-		DistanceKm:      req.DistanceKm,
-		Note:            req.Note,
+		CarID:               req.CarID,
+		StartAt:             req.StartAt,
+		EndAt:               req.EndAt,
+		PickupLocation:      req.PickupLocation,
+		DropoffLocation:     req.DropoffLocation,
+		ContactPhone:        req.ContactPhone,
+		DistanceKm:          req.DistanceKm,
+		OutsideAntananarivo: req.OutsideAntananarivo,
+		Note:                req.Note,
 	})
 }
 
@@ -132,7 +135,11 @@ func (s *Service) create(ctx context.Context, userID *int64, customerName string
 			}
 		}
 		bookingDays := days
-		rateCents, err := parseCents(car.DailyRate)
+		selectedDailyRate, outsideAntananarivo, err := bookingDailyRate(car, req.OutsideAntananarivo)
+		if err != nil {
+			return err
+		}
+		rateCents, err := parseCents(selectedDailyRate)
 		if err != nil {
 			return err
 		}
@@ -169,28 +176,29 @@ func (s *Service) create(ctx context.Context, userID *int64, customerName string
 		}
 
 		b := &Booking{
-			UserID:            userID,
-			CustomerName:      customerNameSnapshot,
-			CarID:             car.ID,
-			BookingNumber:     newBookingNumber(),
-			Status:            StatusConfirmed,
-			PaymentStatus:     PaymentUnpaid,
-			StartAt:           req.StartAt,
-			EndAt:             req.EndAt,
-			Days:              bookingDays,
-			DailyRateSnapshot: car.DailyRate,
-			Fees:              "0.00",
-			TotalPrice:        formatCents(total),
-			PricingModel:      pricingModel,
-			DistanceKm:        distanceKm,
-			CargoPerKmRate:    cargoPerKmRate,
-			CargoMinimumRate:  cargoMinimumRate,
-			CarName:           car.Name,
-			CarCategory:       catName,
-			PickupLocation:    strings.TrimSpace(req.PickupLocation),
-			DropoffLocation:   req.DropoffLocation,
-			ContactPhone:      strings.TrimSpace(req.ContactPhone),
-			Note:              req.Note,
+			UserID:              userID,
+			CustomerName:        customerNameSnapshot,
+			CarID:               car.ID,
+			BookingNumber:       newBookingNumber(),
+			Status:              StatusConfirmed,
+			PaymentStatus:       PaymentUnpaid,
+			StartAt:             req.StartAt,
+			EndAt:               req.EndAt,
+			Days:                bookingDays,
+			DailyRateSnapshot:   selectedDailyRate,
+			OutsideAntananarivo: outsideAntananarivo,
+			Fees:                "0.00",
+			TotalPrice:          formatCents(total),
+			PricingModel:        pricingModel,
+			DistanceKm:          distanceKm,
+			CargoPerKmRate:      cargoPerKmRate,
+			CargoMinimumRate:    cargoMinimumRate,
+			CarName:             car.Name,
+			CarCategory:         catName,
+			PickupLocation:      strings.TrimSpace(req.PickupLocation),
+			DropoffLocation:     req.DropoffLocation,
+			ContactPhone:        strings.TrimSpace(req.ContactPhone),
+			Note:                req.Note,
 		}
 		id, err := s.repo.InsertBooking(ctx, tx, b)
 		if err != nil {
@@ -260,6 +268,20 @@ func (s *Service) List(ctx context.Context, f BookingFilter) ([]Booking, int, er
 
 func (s *Service) Get(ctx context.Context, id int64) (*BookingDetail, error) {
 	return s.detail(ctx, id)
+}
+
+// Delete permanently removes an unpaid booking. Bookings with paid or refunded
+// ledger entries are retained so payment history never points at a missing
+// business record. The repository repeats this guard under a row lock.
+func (s *Service) Delete(ctx context.Context, id int64) error {
+	b, err := s.repo.GetByID(ctx, id)
+	if err != nil {
+		return err
+	}
+	if !isDeletable(b) {
+		return ErrBookingHasPayments
+	}
+	return s.repo.DeleteBooking(ctx, id)
 }
 
 // AssignDriver attaches a driver to a confirmed booking, ensuring the driver is
@@ -333,6 +355,10 @@ func isCancellable(status string) bool {
 	return status == StatusConfirmed || status == StatusDriverAssigned
 }
 
+func isDeletable(b *Booking) bool {
+	return b != nil && b.PaymentStatus == PaymentUnpaid
+}
+
 func canTransition(from, to string) bool {
 	switch to {
 	case StatusActive:
@@ -370,6 +396,19 @@ func sameLocalDay(a, b time.Time) bool {
 	aa := a.In(time.Local)
 	bb := b.In(time.Local)
 	return aa.Year() == bb.Year() && aa.YearDay() == bb.YearDay()
+}
+
+func bookingDailyRate(car *carRow, outsideAntananarivo *bool) (string, bool, error) {
+	if car.IsCargoTransport {
+		return car.DailyRate, false, nil
+	}
+	if outsideAntananarivo == nil {
+		return "", false, ErrRegionChoiceRequired
+	}
+	if *outsideAntananarivo {
+		return car.OutsideAntananarivoDailyRate, true, nil
+	}
+	return car.DailyRate, false, nil
 }
 
 func newBookingNumber() string {

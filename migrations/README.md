@@ -38,9 +38,10 @@ foreign keys.
 - **Price snapshots.** `order_items` and `bookings` freeze the price agreed at
   purchase/booking time. Changing a product/car rate later never alters
   historical records.
-- **Category default rate.** `car_categories.default_daily_rate` is a baseline
-  that prefills new cars; `cars.daily_rate` is the real, per-car source of
-  truth; `bookings.daily_rate_snapshot` freezes it per booking.
+- **Category default rates.** `car_categories.default_daily_rate` and
+  `default_outside_antananarivo_daily_rate` are baselines that prefill new
+  standard cars. The matching per-car rates are the source of truth, and
+  `bookings.daily_rate_snapshot` freezes the selected rate per booking.
 - **Cargo transport pricing.** Cargo-only car categories use
   `cargo_minimum_rate` for the first 10km, then add
   `cargo_per_km_rate * (distance_km - 10)` for longer routes.

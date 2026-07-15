@@ -29,6 +29,9 @@ func validateCarCategory(req CarCategoryRequest) map[string]string {
 	if r := strings.TrimSpace(req.DefaultDailyRate); r != "" && !priceRe.MatchString(r) {
 		p["default_daily_rate"] = "must be a decimal amount, e.g. 120.00"
 	}
+	if r := strings.TrimSpace(req.DefaultOutsideAntananarivoDailyRate); r != "" && !priceRe.MatchString(r) {
+		p["default_outside_antananarivo_daily_rate"] = "must be a decimal amount, e.g. 120.00"
+	}
 	if r := strings.TrimSpace(req.CargoPerKmRate); r != "" && !priceRe.MatchString(r) {
 		p["cargo_per_km_rate"] = "must be a decimal amount, e.g. 120.00"
 	}
@@ -46,6 +49,10 @@ func validateCarCategory(req CarCategoryRequest) map[string]string {
 		} else if !positiveAmount(req.CargoMinimumRate) {
 			p["cargo_minimum_rate"] = "must be greater than zero"
 		}
+	} else if strings.TrimSpace(req.DefaultOutsideAntananarivoDailyRate) == "" {
+		p["default_outside_antananarivo_daily_rate"] = "is required for standard car categories"
+	} else if !positiveAmount(req.DefaultOutsideAntananarivoDailyRate) {
+		p["default_outside_antananarivo_daily_rate"] = "must be greater than zero"
 	}
 	return p
 }
@@ -65,6 +72,9 @@ func validateCar(req CarRequest) map[string]string {
 	}
 	if r := strings.TrimSpace(req.DailyRate); r != "" && !priceRe.MatchString(r) {
 		p["daily_rate"] = "must be a decimal amount, e.g. 120.00"
+	}
+	if r := strings.TrimSpace(req.OutsideAntananarivoDailyRate); r != "" && !priceRe.MatchString(r) {
+		p["outside_antananarivo_daily_rate"] = "must be a decimal amount, e.g. 120.00"
 	}
 	if req.Transmission != nil && !validTransmissions[*req.Transmission] {
 		p["transmission"] = "must be 'manual' or 'automatic'"

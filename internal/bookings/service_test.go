@@ -49,3 +49,24 @@ func TestBillableDaysInclusiveCalendarDays(t *testing.T) {
 		})
 	}
 }
+
+func TestIsDeletableRequiresUnpaidBooking(t *testing.T) {
+	tests := []struct {
+		name    string
+		booking *Booking
+		want    bool
+	}{
+		{name: "unpaid", booking: &Booking{PaymentStatus: PaymentUnpaid}, want: true},
+		{name: "paid", booking: &Booking{PaymentStatus: PaymentPaid}, want: false},
+		{name: "refunded", booking: &Booking{PaymentStatus: PaymentRefunded}, want: false},
+		{name: "missing", booking: nil, want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isDeletable(tt.booking); got != tt.want {
+				t.Fatalf("isDeletable() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}

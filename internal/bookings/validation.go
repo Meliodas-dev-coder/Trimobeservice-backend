@@ -27,14 +27,15 @@ func validateCreateBooking(req CreateBookingRequest) map[string]string {
 
 func validateAdminCreateBooking(req AdminCreateBookingRequest) map[string]string {
 	p := validateCreateBooking(CreateBookingRequest{
-		CarID:           req.CarID,
-		StartAt:         req.StartAt,
-		EndAt:           req.EndAt,
-		PickupLocation:  req.PickupLocation,
-		DropoffLocation: req.DropoffLocation,
-		DistanceKm:      req.DistanceKm,
-		ContactPhone:    req.ContactPhone,
-		Note:            req.Note,
+		CarID:               req.CarID,
+		StartAt:             req.StartAt,
+		EndAt:               req.EndAt,
+		PickupLocation:      req.PickupLocation,
+		DropoffLocation:     req.DropoffLocation,
+		DistanceKm:          req.DistanceKm,
+		OutsideAntananarivo: req.OutsideAntananarivo,
+		ContactPhone:        req.ContactPhone,
+		Note:                req.Note,
 	})
 	if req.UserID != nil && *req.UserID <= 0 {
 		p["user_id"] = "must be greater than zero"

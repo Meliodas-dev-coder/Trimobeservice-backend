@@ -299,8 +299,18 @@ func (r *Repository) SetBookingPaymentTx(ctx context.Context, tx *sqlx.Tx, id in
 	if status == targetPaid {
 		q = `UPDATE bookings SET payment_status = ?, paid_at = NOW() WHERE id = ?`
 	}
-	_, err := tx.ExecContext(ctx, q, status, id)
-	return err
+	res, err := tx.ExecContext(ctx, q, status, id)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return ErrTargetNotFound
+	}
+	return nil
 }
 
 func (r *Repository) SetEventPaymentTx(ctx context.Context, tx *sqlx.Tx, id int64, status string) error {

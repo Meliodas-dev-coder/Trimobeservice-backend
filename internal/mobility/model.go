@@ -26,46 +26,49 @@ const (
 // --- domain models ---
 
 type CarCategory struct {
-	ID               int64          `db:"id" json:"id"`
-	Name             string         `db:"name" json:"name"`
-	Slug             string         `db:"slug" json:"slug"`
-	Description      *string        `db:"description" json:"description,omitempty"`
-	Translations     types.JSONText `db:"translations" json:"translations,omitempty"`
-	DefaultDailyRate string         `db:"default_daily_rate" json:"default_daily_rate"` // DECIMAL(12,2) as string
-	IsCargoTransport bool           `db:"is_cargo_transport" json:"is_cargo_transport"`
-	CargoPerKmRate   string         `db:"cargo_per_km_rate" json:"cargo_per_km_rate"`
-	CargoMinimumRate string         `db:"cargo_minimum_rate" json:"cargo_minimum_rate"`
-	SortOrder        int            `db:"sort_order" json:"sort_order"`
-	IsActive         bool           `db:"is_active" json:"is_active"`
-	CreatedAt        time.Time      `db:"created_at" json:"created_at"`
-	UpdatedAt        time.Time      `db:"updated_at" json:"updated_at"`
+	ID                                  int64          `db:"id" json:"id"`
+	Name                                string         `db:"name" json:"name"`
+	Slug                                string         `db:"slug" json:"slug"`
+	Description                         *string        `db:"description" json:"description,omitempty"`
+	Translations                        types.JSONText `db:"translations" json:"translations,omitempty"`
+	DefaultDailyRate                    string         `db:"default_daily_rate" json:"default_daily_rate"` // DECIMAL(12,2) as string
+	DefaultOutsideAntananarivoDailyRate string         `db:"default_outside_antananarivo_daily_rate" json:"default_outside_antananarivo_daily_rate"`
+	IsCargoTransport                    bool           `db:"is_cargo_transport" json:"is_cargo_transport"`
+	CargoPerKmRate                      string         `db:"cargo_per_km_rate" json:"cargo_per_km_rate"`
+	CargoMinimumRate                    string         `db:"cargo_minimum_rate" json:"cargo_minimum_rate"`
+	SortOrder                           int            `db:"sort_order" json:"sort_order"`
+	IsActive                            bool           `db:"is_active" json:"is_active"`
+	CreatedAt                           time.Time      `db:"created_at" json:"created_at"`
+	UpdatedAt                           time.Time      `db:"updated_at" json:"updated_at"`
 }
 
 type Car struct {
-	ID                int64          `db:"id" json:"id"`
-	CategoryID        int64          `db:"category_id" json:"category_id"`
-	Name              string         `db:"name" json:"name"`
-	Slug              string         `db:"slug" json:"slug"`
-	Make              *string        `db:"make" json:"make,omitempty"`
-	Model             *string        `db:"model" json:"model,omitempty"`
-	Year              *int           `db:"year" json:"year,omitempty"`
-	RegistrationPlate *string        `db:"registration_plate" json:"registration_plate,omitempty"`
-	Color             *string        `db:"color" json:"color,omitempty"`
-	Seats             *int           `db:"seats" json:"seats,omitempty"`
-	Transmission      *string        `db:"transmission" json:"transmission,omitempty"`
-	FuelType          *string        `db:"fuel_type" json:"fuel_type,omitempty"`
-	DailyRate         string         `db:"daily_rate" json:"daily_rate"` // DECIMAL(12,2) as string
-	IsCargoTransport  bool           `db:"is_cargo_transport" json:"is_cargo_transport"`
-	CargoPerKmRate    string         `db:"cargo_per_km_rate" json:"cargo_per_km_rate"`
-	CargoMinimumRate  string         `db:"cargo_minimum_rate" json:"cargo_minimum_rate"`
-	Attributes        types.JSONText `db:"attributes" json:"attributes,omitempty"`
-	Description       *string        `db:"description" json:"description,omitempty"`
-	Translations      types.JSONText `db:"translations" json:"translations,omitempty"`
-	Status            string         `db:"status" json:"status"`
-	BaseStatus        string         `db:"base_status" json:"-"`
-	PrimaryImageURL   *string        `db:"primary_image_url" json:"primary_image_url,omitempty"`
-	CreatedAt         time.Time      `db:"created_at" json:"created_at"`
-	UpdatedAt         time.Time      `db:"updated_at" json:"updated_at"`
+	ID                           int64          `db:"id" json:"id"`
+	CategoryID                   int64          `db:"category_id" json:"category_id"`
+	Name                         string         `db:"name" json:"name"`
+	Slug                         string         `db:"slug" json:"slug"`
+	Make                         *string        `db:"make" json:"make,omitempty"`
+	Model                        *string        `db:"model" json:"model,omitempty"`
+	Year                         *int           `db:"year" json:"year,omitempty"`
+	RegistrationPlate            *string        `db:"registration_plate" json:"registration_plate,omitempty"`
+	Color                        *string        `db:"color" json:"color,omitempty"`
+	Seats                        *int           `db:"seats" json:"seats,omitempty"`
+	Transmission                 *string        `db:"transmission" json:"transmission,omitempty"`
+	FuelType                     *string        `db:"fuel_type" json:"fuel_type,omitempty"`
+	DailyRate                    string         `db:"daily_rate" json:"daily_rate"` // DECIMAL(12,2) as string
+	OutsideAntananarivoDailyRate string         `db:"outside_antananarivo_daily_rate" json:"outside_antananarivo_daily_rate"`
+	IsCargoTransport             bool           `db:"is_cargo_transport" json:"is_cargo_transport"`
+	CargoPerKmRate               string         `db:"cargo_per_km_rate" json:"cargo_per_km_rate"`
+	CargoMinimumRate             string         `db:"cargo_minimum_rate" json:"cargo_minimum_rate"`
+	Attributes                   types.JSONText `db:"attributes" json:"attributes,omitempty"`
+	Description                  *string        `db:"description" json:"description,omitempty"`
+	Translations                 types.JSONText `db:"translations" json:"translations,omitempty"`
+	Status                       string         `db:"status" json:"status"`
+	BaseStatus                   string         `db:"base_status" json:"-"`
+	AvailableForRange            *bool          `db:"available_for_range" json:"available_for_range,omitempty"`
+	PrimaryImageURL              *string        `db:"primary_image_url" json:"primary_image_url,omitempty"`
+	CreatedAt                    time.Time      `db:"created_at" json:"created_at"`
+	UpdatedAt                    time.Time      `db:"updated_at" json:"updated_at"`
 }
 
 type CarImage struct {
@@ -129,44 +132,49 @@ type CarOverview struct {
 
 // CarFilter drives the car list query.
 type CarFilter struct {
-	CategoryID    *int64
-	Search        string
-	Status        string // "" = any (admin); public forces "available"
-	IncludeBooked bool   // with status=available, keep cars booked today in the list
-	Limit         int
-	Offset        int
+	CategoryID      *int64
+	Search          string
+	Status          string // "" = any; public excludes inactive cars separately
+	IncludeBooked   bool   // with status=available, keep cars booked today in the list
+	ExcludeInactive bool   // public catalog keeps retired/hidden cars out
+	AvailableStart  *time.Time
+	AvailableEnd    *time.Time
+	Limit           int
+	Offset          int
 }
 
 // --- request DTOs ---
 
 type CarCategoryRequest struct {
-	Name             string         `json:"name"`
-	Description      *string        `json:"description"`
-	Translations     types.JSONText `json:"translations"`
-	DefaultDailyRate string         `json:"default_daily_rate"`
-	IsCargoTransport *bool          `json:"is_cargo_transport"`
-	CargoPerKmRate   string         `json:"cargo_per_km_rate"`
-	CargoMinimumRate string         `json:"cargo_minimum_rate"`
-	SortOrder        int            `json:"sort_order"`
-	IsActive         *bool          `json:"is_active"`
+	Name                                string         `json:"name"`
+	Description                         *string        `json:"description"`
+	Translations                        types.JSONText `json:"translations"`
+	DefaultDailyRate                    string         `json:"default_daily_rate"`
+	DefaultOutsideAntananarivoDailyRate string         `json:"default_outside_antananarivo_daily_rate"`
+	IsCargoTransport                    *bool          `json:"is_cargo_transport"`
+	CargoPerKmRate                      string         `json:"cargo_per_km_rate"`
+	CargoMinimumRate                    string         `json:"cargo_minimum_rate"`
+	SortOrder                           int            `json:"sort_order"`
+	IsActive                            *bool          `json:"is_active"`
 }
 
 type CarRequest struct {
-	CategoryID        int64          `json:"category_id"`
-	Name              string         `json:"name"`
-	Make              *string        `json:"make"`
-	Model             *string        `json:"model"`
-	Year              *int           `json:"year"`
-	RegistrationPlate *string        `json:"registration_plate"`
-	Color             *string        `json:"color"`
-	Seats             *int           `json:"seats"`
-	Transmission      *string        `json:"transmission"`
-	FuelType          *string        `json:"fuel_type"`
-	DailyRate         string         `json:"daily_rate"` // blank = seed from category default (create) / keep (update)
-	Attributes        types.JSONText `json:"attributes"`
-	Description       *string        `json:"description"`
-	Translations      types.JSONText `json:"translations"`
-	Status            *string        `json:"status"`
+	CategoryID                   int64          `json:"category_id"`
+	Name                         string         `json:"name"`
+	Make                         *string        `json:"make"`
+	Model                        *string        `json:"model"`
+	Year                         *int           `json:"year"`
+	RegistrationPlate            *string        `json:"registration_plate"`
+	Color                        *string        `json:"color"`
+	Seats                        *int           `json:"seats"`
+	Transmission                 *string        `json:"transmission"`
+	FuelType                     *string        `json:"fuel_type"`
+	DailyRate                    string         `json:"daily_rate"` // blank = seed from category default (create) / keep (update)
+	OutsideAntananarivoDailyRate string         `json:"outside_antananarivo_daily_rate"`
+	Attributes                   types.JSONText `json:"attributes"`
+	Description                  *string        `json:"description"`
+	Translations                 types.JSONText `json:"translations"`
+	Status                       *string        `json:"status"`
 }
 
 type CarImageRequest struct {

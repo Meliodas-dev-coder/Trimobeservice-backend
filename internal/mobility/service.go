@@ -8,10 +8,17 @@ import (
 )
 
 var (
-	ErrInvalidCategory = errors.New("referenced car category does not exist")
-	ErrPlateTaken      = errors.New("registration plate already exists")
-	ErrPhoneTaken      = errors.New("driver phone already exists")
-	ErrLicenseTaken    = errors.New("driver license already exists")
+	ErrInvalidCategory             = errors.New("referenced car category does not exist")
+	ErrOutsideCategoryRateRequired = errors.New("default outside Antananarivo daily rate is required for standard car categories")
+	ErrOutsideRateRequired         = errors.New("outside Antananarivo daily rate is required for standard cars")
+	ErrPlateTaken                  = errors.New("registration plate already exists")
+	ErrPhoneTaken                  = errors.New("driver phone already exists")
+	ErrLicenseTaken                = errors.New("driver license already exists")
+)
+
+const (
+	cargoPerKmRate   = "10000.00"
+	cargoMinimumRate = "120000.00"
 )
 
 // ImageDeleter removes an image's backing file from object storage. Optional
@@ -41,20 +48,25 @@ func (s *Service) CreateCarCategory(ctx context.Context, req CarCategoryRequest)
 		return nil, err
 	}
 	c := &CarCategory{
-		Name:             strings.TrimSpace(req.Name),
-		Slug:             slug,
-		Description:      req.Description,
-		Translations:     req.Translations,
-		DefaultDailyRate: defaultRate(req.DefaultDailyRate),
-		IsCargoTransport: derefBool(req.IsCargoTransport, false),
-		CargoPerKmRate:   defaultRate(req.CargoPerKmRate),
-		CargoMinimumRate: defaultRate(req.CargoMinimumRate),
-		SortOrder:        req.SortOrder,
-		IsActive:         derefBool(req.IsActive, true),
+		Name:                                strings.TrimSpace(req.Name),
+		Slug:                                slug,
+		Description:                         req.Description,
+		Translations:                        req.Translations,
+		DefaultDailyRate:                    defaultRate(req.DefaultDailyRate),
+		DefaultOutsideAntananarivoDailyRate: defaultRate(req.DefaultOutsideAntananarivoDailyRate),
+		IsCargoTransport:                    derefBool(req.IsCargoTransport, false),
+		CargoPerKmRate:                      "0",
+		CargoMinimumRate:                    "0",
+		SortOrder:                           req.SortOrder,
+		IsActive:                            derefBool(req.IsActive, true),
 	}
-	if !c.IsCargoTransport {
-		c.CargoPerKmRate = "0"
-		c.CargoMinimumRate = "0"
+	if c.IsCargoTransport {
+		c.DefaultDailyRate = "0"
+		c.DefaultOutsideAntananarivoDailyRate = "0"
+		c.CargoPerKmRate = cargoPerKmRate
+		c.CargoMinimumRate = cargoMinimumRate
+	} else if !positiveAmount(c.DefaultOutsideAntananarivoDailyRate) {
+		return nil, ErrOutsideCategoryRateRequired
 	}
 	id, err := s.repo.CreateCarCategory(ctx, c)
 	if err != nil {
@@ -77,12 +89,17 @@ func (s *Service) UpdateCarCategory(ctx context.Context, id int64, req CarCatego
 	c.Description = req.Description
 	c.Translations = req.Translations
 	c.DefaultDailyRate = defaultRate(req.DefaultDailyRate)
+	c.DefaultOutsideAntananarivoDailyRate = defaultRate(req.DefaultOutsideAntananarivoDailyRate)
 	c.IsCargoTransport = derefBool(req.IsCargoTransport, false)
-	c.CargoPerKmRate = defaultRate(req.CargoPerKmRate)
-	c.CargoMinimumRate = defaultRate(req.CargoMinimumRate)
-	if !c.IsCargoTransport {
-		c.CargoPerKmRate = "0"
-		c.CargoMinimumRate = "0"
+	c.CargoPerKmRate = "0"
+	c.CargoMinimumRate = "0"
+	if c.IsCargoTransport {
+		c.DefaultDailyRate = "0"
+		c.DefaultOutsideAntananarivoDailyRate = "0"
+		c.CargoPerKmRate = cargoPerKmRate
+		c.CargoMinimumRate = cargoMinimumRate
+	} else if !positiveAmount(c.DefaultOutsideAntananarivoDailyRate) {
+		return nil, ErrOutsideCategoryRateRequired
 	}
 	c.SortOrder = req.SortOrder
 	if req.IsActive != nil {
@@ -152,10 +169,21 @@ func (s *Service) CreateCar(ctx context.Context, req CarRequest) (*CarDetail, er
 	if err := s.ensurePlateFree(ctx, req.RegistrationPlate, 0); err != nil {
 		return nil, err
 	}
-
 	rate := strings.TrimSpace(req.DailyRate)
-	if rate == "" {
-		rate = cat.DefaultDailyRate // pricing cascade: category default seeds the car
+	outsideRate := strings.TrimSpace(req.OutsideAntananarivoDailyRate)
+	if cat.IsCargoTransport {
+		rate = "0"
+		outsideRate = "0"
+	} else {
+		if rate == "" {
+			rate = cat.DefaultDailyRate // pricing cascade: category default seeds the car
+		}
+		if outsideRate == "" {
+			outsideRate = cat.DefaultOutsideAntananarivoDailyRate
+		}
+	}
+	if !cat.IsCargoTransport && !positiveAmount(outsideRate) {
+		return nil, ErrOutsideRateRequired
 	}
 	slug, err := s.uniqueSlug(ctx, req.Name, 0, s.repo.CarSlugExists)
 	if err != nil {
@@ -163,22 +191,23 @@ func (s *Service) CreateCar(ctx context.Context, req CarRequest) (*CarDetail, er
 	}
 
 	c := &Car{
-		CategoryID:        req.CategoryID,
-		Name:              strings.TrimSpace(req.Name),
-		Slug:              slug,
-		Make:              req.Make,
-		Model:             req.Model,
-		Year:              req.Year,
-		RegistrationPlate: normalizePlate(req.RegistrationPlate),
-		Color:             req.Color,
-		Seats:             req.Seats,
-		Transmission:      req.Transmission,
-		FuelType:          req.FuelType,
-		DailyRate:         rate,
-		Attributes:        req.Attributes,
-		Description:       req.Description,
-		Translations:      req.Translations,
-		Status:            storedCarStatus(statusOr(req.Status, CarStatusAvailable)),
+		CategoryID:                   req.CategoryID,
+		Name:                         strings.TrimSpace(req.Name),
+		Slug:                         slug,
+		Make:                         req.Make,
+		Model:                        req.Model,
+		Year:                         req.Year,
+		RegistrationPlate:            normalizePlate(req.RegistrationPlate),
+		Color:                        req.Color,
+		Seats:                        req.Seats,
+		Transmission:                 req.Transmission,
+		FuelType:                     req.FuelType,
+		DailyRate:                    rate,
+		OutsideAntananarivoDailyRate: outsideRate,
+		Attributes:                   req.Attributes,
+		Description:                  req.Description,
+		Translations:                 req.Translations,
+		Status:                       storedCarStatus(statusOr(req.Status, CarStatusAvailable)),
 	}
 	id, err := s.repo.CreateCar(ctx, c)
 	if err != nil {
@@ -192,16 +221,31 @@ func (s *Service) UpdateCar(ctx context.Context, id int64, req CarRequest) (*Car
 	if err != nil {
 		return nil, err
 	}
-	if err := s.mustCategoryExist(ctx, req.CategoryID); err != nil {
+	cat, err := s.repo.GetCarCategoryByID(ctx, req.CategoryID)
+	if err != nil {
+		if errors.Is(err, ErrCarCategoryNotFound) {
+			return nil, ErrInvalidCategory
+		}
 		return nil, err
 	}
 	if err := s.ensurePlateFree(ctx, req.RegistrationPlate, id); err != nil {
 		return nil, err
 	}
-
 	rate := strings.TrimSpace(req.DailyRate)
-	if rate == "" {
+	outsideRate := strings.TrimSpace(req.OutsideAntananarivoDailyRate)
+	if cat.IsCargoTransport {
+		rate = "0"
+		outsideRate = "0"
+	} else if rate == "" && c.IsCargoTransport {
+		rate = cat.DefaultDailyRate
+	} else if rate == "" {
 		rate = c.DailyRate // keep the existing rate when none supplied
+	}
+	if !cat.IsCargoTransport && outsideRate == "" {
+		outsideRate = cat.DefaultOutsideAntananarivoDailyRate
+	}
+	if !cat.IsCargoTransport && !positiveAmount(outsideRate) {
+		return nil, ErrOutsideRateRequired
 	}
 	slug, err := s.uniqueSlug(ctx, req.Name, id, s.repo.CarSlugExists)
 	if err != nil {
@@ -220,6 +264,7 @@ func (s *Service) UpdateCar(ctx context.Context, id int64, req CarRequest) (*Car
 	c.Transmission = req.Transmission
 	c.FuelType = req.FuelType
 	c.DailyRate = rate
+	c.OutsideAntananarivoDailyRate = outsideRate
 	c.Attributes = req.Attributes
 	c.Description = req.Description
 	c.Translations = req.Translations

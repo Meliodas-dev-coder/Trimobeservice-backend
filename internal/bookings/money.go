@@ -86,7 +86,7 @@ func formatHundredths(n int64) string {
 }
 
 func cargoTotalCents(distanceHundredths, perKmCents, minimumCents int64) int64 {
-	const includedKmHundredths = 1000 // first 10km are covered by the minimum.
+	const includedKmHundredths = 1000 // the minimum covers the first 10 km.
 	if distanceHundredths <= includedKmHundredths {
 		return minimumCents
 	}

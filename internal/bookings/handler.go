@@ -224,6 +224,18 @@ func (h *Handler) GetAdmin(w http.ResponseWriter, r *http.Request) {
 	httpx.JSON(w, http.StatusOK, httpx.Envelope{"booking": b})
 }
 
+func (h *Handler) DeleteAdmin(w http.ResponseWriter, r *http.Request) {
+	id, ok := idParam(w, r)
+	if !ok {
+		return
+	}
+	if err := h.svc.Delete(r.Context(), id); err != nil {
+		writeError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (h *Handler) AssignDriver(w http.ResponseWriter, r *http.Request) {
 	id, ok := idParam(w, r)
 	if !ok {
@@ -325,12 +337,14 @@ func writeError(w http.ResponseWriter, err error) {
 		errors.Is(err, ErrDriverInactive),
 		errors.Is(err, ErrNotAssignable),
 		errors.Is(err, ErrInvalidTransition),
-		errors.Is(err, ErrNotCancellable):
+		errors.Is(err, ErrNotCancellable),
+		errors.Is(err, ErrBookingHasPayments):
 		httpx.Error(w, http.StatusConflict, err.Error())
 	case errors.Is(err, ErrInvalidDates),
 		errors.Is(err, ErrPastStart),
 		errors.Is(err, ErrDistanceRequired),
-		errors.Is(err, ErrInvalidDistance):
+		errors.Is(err, ErrInvalidDistance),
+		errors.Is(err, ErrRegionChoiceRequired):
 		httpx.Error(w, http.StatusUnprocessableEntity, err.Error())
 	default:
 		httpx.Error(w, http.StatusInternalServerError, "internal server error")

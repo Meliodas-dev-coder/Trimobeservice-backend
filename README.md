@@ -111,7 +111,7 @@ Public reads:
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/api/v1/car-categories` | active car categories |
-| GET | `/api/v1/cars` | cars with `status=available`; filters `category_id`, `q`; paging `page`, `limit` |
+| GET | `/api/v1/cars` | public cars (inactive excluded); filters `category_id`, `q`, optional RFC3339 `start` + `end`; date searches include `available_for_range` and sort available cars first; paging `page`, `limit` |
 | GET | `/api/v1/cars/{slug}` | car detail with category and images |
 
 Admin (require `role=admin`):
@@ -128,10 +128,12 @@ Admin (require `role=admin`):
 | GET/POST | `/api/v1/admin/drivers` | list (optional `?status=`) / create |
 | GET/PUT/DELETE | `/api/v1/admin/drivers/{id}` | detail / update / delete |
 
-Pricing cascade: a new car's `daily_rate` is seeded from its category's
-`default_daily_rate` when left blank, then becomes the car's own source of
-truth. `registration_plate` is unique (blank → NULL). Car-category-specific
-specs (payload, luggage, …) go in the car's JSON `attributes`.
+Pricing cascade: a new standard car's `daily_rate` and
+`outside_antananarivo_daily_rate` are seeded from its category's
+`default_daily_rate` and `default_outside_antananarivo_daily_rate` when left
+blank, then become the car's own prices. `registration_plate` is unique (blank
+→ NULL). Car-category-specific specs (payload, luggage, …) go in the car's
+JSON `attributes`.
 
 Car and driver `status` values are effective for the current day on read:
 cars stored as `available` return `not_available` when they have a confirmed,
@@ -209,6 +211,7 @@ Admin (`role=admin`):
 |--------|------|-------------|
 | GET | `/api/v1/admin/bookings` | list; filters `status`, `payment_status`, `car_id` |
 | GET | `/api/v1/admin/bookings/{id}` | booking detail |
+| DELETE | `/api/v1/admin/bookings/{id}` | permanently delete an unpaid booking with no payment history |
 | POST | `/api/v1/admin/bookings/{id}/assign-driver` | assign `{driver_id}` (checks driver is active + free) |
 | PATCH | `/api/v1/admin/bookings/{id}/status` | `confirmed/driver_assigned→active→completed`, or `cancelled` |
 

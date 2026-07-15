@@ -33,7 +33,7 @@ const dayBookedStatuses = "'confirmed','driver_assigned','active','completed'"
 
 // --- car categories ---
 
-const carCategoryCols = `id, name, slug, description, translations, default_daily_rate,
+const carCategoryCols = `id, name, slug, description, translations, default_daily_rate, default_outside_antananarivo_daily_rate,
 	is_cargo_transport, cargo_per_km_rate, cargo_minimum_rate,
 	sort_order, is_active, created_at, updated_at`
 
@@ -71,10 +71,10 @@ func (r *Repository) CarCategorySlugExists(ctx context.Context, slug string, exc
 
 func (r *Repository) CreateCarCategory(ctx context.Context, c *CarCategory) (int64, error) {
 	res, err := r.db.ExecContext(ctx,
-		`INSERT INTO car_categories (name, slug, description, translations, default_daily_rate,
+		`INSERT INTO car_categories (name, slug, description, translations, default_daily_rate, default_outside_antananarivo_daily_rate,
 		 is_cargo_transport, cargo_per_km_rate, cargo_minimum_rate, sort_order, is_active)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		c.Name, c.Slug, c.Description, nullableJSON(c.Translations), c.DefaultDailyRate, c.IsCargoTransport,
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		c.Name, c.Slug, c.Description, nullableJSON(c.Translations), c.DefaultDailyRate, c.DefaultOutsideAntananarivoDailyRate, c.IsCargoTransport,
 		c.CargoPerKmRate, c.CargoMinimumRate, c.SortOrder, c.IsActive)
 	if err != nil {
 		return 0, mapWriteErr(err)
@@ -85,11 +85,11 @@ func (r *Repository) CreateCarCategory(ctx context.Context, c *CarCategory) (int
 func (r *Repository) UpdateCarCategory(ctx context.Context, c *CarCategory) error {
 	res, err := r.db.ExecContext(ctx,
 		`UPDATE car_categories
-		 SET name = ?, slug = ?, description = ?, translations = ?, default_daily_rate = ?,
+		 SET name = ?, slug = ?, description = ?, translations = ?, default_daily_rate = ?, default_outside_antananarivo_daily_rate = ?,
 		     is_cargo_transport = ?, cargo_per_km_rate = ?, cargo_minimum_rate = ?,
 		     sort_order = ?, is_active = ?
 		 WHERE id = ?`,
-		c.Name, c.Slug, c.Description, nullableJSON(c.Translations), c.DefaultDailyRate, c.IsCargoTransport,
+		c.Name, c.Slug, c.Description, nullableJSON(c.Translations), c.DefaultDailyRate, c.DefaultOutsideAntananarivoDailyRate, c.IsCargoTransport,
 		c.CargoPerKmRate, c.CargoMinimumRate, c.SortOrder, c.IsActive, c.ID)
 	if err != nil {
 		return mapWriteErr(err)
@@ -122,6 +122,7 @@ END`
 
 const carCols = `cars.id, cars.category_id, cars.name, cars.slug, cars.make, cars.model, cars.year,
 	cars.registration_plate, cars.color, cars.seats, cars.transmission, cars.fuel_type, cars.daily_rate,
+	cars.outside_antananarivo_daily_rate,
 	(SELECT cc.is_cargo_transport FROM car_categories cc WHERE cc.id = cars.category_id) AS is_cargo_transport,
 	(SELECT cc.cargo_per_km_rate FROM car_categories cc WHERE cc.id = cars.category_id) AS cargo_per_km_rate,
 	(SELECT cc.cargo_minimum_rate FROM car_categories cc WHERE cc.id = cars.category_id) AS cargo_minimum_rate,
@@ -149,13 +150,18 @@ func (r *Repository) ListCars(ctx context.Context, f CarFilter) ([]Car, int, err
 			args = append(args, f.Status)
 		}
 	}
+	if f.ExcludeInactive {
+		where = append(where, "cars.status <> ?")
+		args = append(args, CarStatusInactive)
+	}
 	if f.CategoryID != nil {
 		where = append(where, "cars.category_id = ?")
 		args = append(args, *f.CategoryID)
 	}
 	if f.Search != "" {
-		where = append(where, "cars.name LIKE ?")
-		args = append(args, "%"+f.Search+"%")
+		where = append(where, "(cars.name LIKE ? OR cars.make LIKE ? OR cars.model LIKE ? OR cars.registration_plate LIKE ?)")
+		pattern := "%" + f.Search + "%"
+		args = append(args, pattern, pattern, pattern, pattern)
 	}
 	clause := ""
 	if len(where) > 0 {
@@ -167,10 +173,24 @@ func (r *Repository) ListCars(ctx context.Context, f CarFilter) ([]Car, int, err
 		return nil, 0, err
 	}
 
-	listArgs := append(append([]any{}, args...), f.Limit, f.Offset)
+	selectCols := carCols
+	orderBy := "created_at DESC"
+	availabilityArgs := []any{}
+	if f.AvailableStart != nil && f.AvailableEnd != nil {
+		selectCols += `, (cars.status = 'available' AND NOT EXISTS (
+			SELECT 1 FROM bookings b
+			WHERE b.car_id = cars.id
+			  AND b.status IN (` + dayBookedStatuses + `)
+			  AND b.start_at < ?
+			  AND b.end_at > ?
+		)) AS available_for_range`
+		availabilityArgs = append(availabilityArgs, *f.AvailableEnd, *f.AvailableStart)
+		orderBy = "available_for_range DESC, created_at DESC"
+	}
+	listArgs := append(append(append([]any{}, availabilityArgs...), args...), f.Limit, f.Offset)
 	out := []Car{}
 	err := r.db.SelectContext(ctx, &out,
-		`SELECT `+carCols+` FROM cars`+clause+` ORDER BY created_at DESC LIMIT ? OFFSET ?`, listArgs...)
+		`SELECT `+selectCols+` FROM cars`+clause+` ORDER BY `+orderBy+` LIMIT ? OFFSET ?`, listArgs...)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -218,10 +238,12 @@ func (r *Repository) PlateExists(ctx context.Context, plate string, excludeID in
 func (r *Repository) CreateCar(ctx context.Context, c *Car) (int64, error) {
 	res, err := r.db.ExecContext(ctx,
 		`INSERT INTO cars (category_id, name, slug, make, model, year, registration_plate, color, seats,
-		 transmission, fuel_type, daily_rate, attributes, description, translations, status)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		 transmission, fuel_type, daily_rate, outside_antananarivo_daily_rate,
+		 attributes, description, translations, status)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		c.CategoryID, c.Name, c.Slug, c.Make, c.Model, c.Year, c.RegistrationPlate, c.Color, c.Seats,
-		c.Transmission, c.FuelType, c.DailyRate, c.Attributes, c.Description, nullableJSON(c.Translations), c.Status)
+		c.Transmission, c.FuelType, c.DailyRate, c.OutsideAntananarivoDailyRate,
+		c.Attributes, c.Description, nullableJSON(c.Translations), c.Status)
 	if err != nil {
 		return 0, mapWriteErr(err)
 	}
@@ -232,11 +254,13 @@ func (r *Repository) UpdateCar(ctx context.Context, c *Car) error {
 	res, err := r.db.ExecContext(ctx,
 		`UPDATE cars
 		 SET category_id = ?, name = ?, slug = ?, make = ?, model = ?, year = ?, registration_plate = ?,
-		     color = ?, seats = ?, transmission = ?, fuel_type = ?, daily_rate = ?, attributes = ?,
+		     color = ?, seats = ?, transmission = ?, fuel_type = ?, daily_rate = ?,
+		     outside_antananarivo_daily_rate = ?, attributes = ?,
 		     description = ?, translations = ?, status = ?
 		 WHERE id = ?`,
 		c.CategoryID, c.Name, c.Slug, c.Make, c.Model, c.Year, c.RegistrationPlate, c.Color, c.Seats,
-		c.Transmission, c.FuelType, c.DailyRate, c.Attributes, c.Description, nullableJSON(c.Translations), c.Status, c.ID)
+		c.Transmission, c.FuelType, c.DailyRate, c.OutsideAntananarivoDailyRate,
+		c.Attributes, c.Description, nullableJSON(c.Translations), c.Status, c.ID)
 	if err != nil {
 		return mapWriteErr(err)
 	}

@@ -1,8 +1,8 @@
 // Package dashboard is a read-only, admin-only aggregate over the whole system:
 // KPI counters, a 30-day paid-revenue series, status breakdowns for orders,
-// bookings, and healthcare requests, the paid-payment method mix, and the
-// "needs attention" queues (unpaid orders, bookings to confirm, healthcare
-// requests to review). Everything is computed in SQL so the admin home can
+// bookings, events, and healthcare requests, the paid-payment method mix, and
+// the "needs attention" queues (unpaid orders, bookings to confirm, event and
+// healthcare requests to review). Everything is computed in SQL so the admin home can
 // render real numbers and charts in a single request.
 package dashboard
 
@@ -22,6 +22,7 @@ type Dashboard struct {
 	RevenueSeries      []RevenuePoint `json:"revenue_series"`
 	OrdersByStatus     []StatusCount  `json:"orders_by_status"`
 	BookingsByStatus   []StatusCount  `json:"bookings_by_status"`
+	EventsByStatus     []StatusCount  `json:"events_by_status"`
 	HealthcareByStatus []StatusCount  `json:"healthcare_by_status"`
 	PaymentMethods     []MethodTotal  `json:"payment_methods"`
 	Attention          Attention      `json:"attention"`
@@ -35,6 +36,8 @@ type KPIs struct {
 	OrdersUnpaid       int    `json:"orders_unpaid"`
 	BookingsTotal      int    `json:"bookings_total"`
 	BookingsToConfirm  int    `json:"bookings_to_confirm"`
+	EventRequestsTotal int    `json:"event_requests_total"`
+	EventsToReview     int    `json:"events_to_review"`
 	CustomersTotal     int    `json:"customers_total"`
 	CustomersNewMonth  int    `json:"customers_new_month"`
 	ProductsActive     int    `json:"products_active"`
@@ -46,9 +49,11 @@ type KPIs struct {
 
 // RevenuePoint is one day of confirmed (paid) revenue, split by source.
 type RevenuePoint struct {
-	Date     string `json:"date"`     // YYYY-MM-DD
-	Orders   string `json:"orders"`   // DECIMAL string
-	Bookings string `json:"bookings"` // DECIMAL string
+	Date       string `json:"date"`       // YYYY-MM-DD
+	Orders     string `json:"orders"`     // DECIMAL string
+	Bookings   string `json:"bookings"`   // DECIMAL string
+	Events     string `json:"events"`     // DECIMAL string
+	Healthcare string `json:"healthcare"` // DECIMAL string
 }
 
 type StatusCount struct {
@@ -74,14 +79,17 @@ type AttentionItem struct {
 type Attention struct {
 	UnpaidOrders       []AttentionItem `json:"unpaid_orders"`
 	BookingsToConfirm  []AttentionItem `json:"bookings_to_confirm"`
+	EventsToReview     []AttentionItem `json:"events_to_review"`
 	HealthcareToReview []AttentionItem `json:"healthcare_to_review"`
 }
 
 // dayRevenue is the raw per-day split returned by the revenue query.
 type dayRevenue struct {
-	Date     string `db:"date"`
-	Orders   string `db:"orders"`
-	Bookings string `db:"bookings"`
+	Date       string `db:"date"`
+	Orders     string `db:"orders"`
+	Bookings   string `db:"bookings"`
+	Events     string `db:"events"`
+	Healthcare string `db:"healthcare"`
 }
 
 // Repository runs the aggregate queries.
@@ -114,6 +122,10 @@ func (r *Repository) Load(ctx context.Context) (*Dashboard, error) {
 		`SELECT status, COUNT(*) AS count FROM bookings GROUP BY status ORDER BY count DESC`); err != nil {
 		return nil, err
 	}
+	if err := r.db.SelectContext(ctx, &out.EventsByStatus,
+		`SELECT status, COUNT(*) AS count FROM event_requests GROUP BY status ORDER BY count DESC`); err != nil {
+		return nil, err
+	}
 	if err := r.db.SelectContext(ctx, &out.HealthcareByStatus,
 		`SELECT status, COUNT(*) AS count FROM healthcare_requests GROUP BY status ORDER BY count DESC`); err != nil {
 		return nil, err
@@ -130,6 +142,9 @@ func (r *Repository) Load(ctx context.Context) (*Dashboard, error) {
 	if out.Attention.BookingsToConfirm, err = r.loadBookingsToConfirm(ctx); err != nil {
 		return nil, err
 	}
+	if out.Attention.EventsToReview, err = r.loadEventsToReview(ctx); err != nil {
+		return nil, err
+	}
 	if out.Attention.HealthcareToReview, err = r.loadHealthcareToReview(ctx); err != nil {
 		return nil, err
 	}
@@ -140,6 +155,9 @@ func (r *Repository) Load(ctx context.Context) (*Dashboard, error) {
 	}
 	if out.BookingsByStatus == nil {
 		out.BookingsByStatus = []StatusCount{}
+	}
+	if out.EventsByStatus == nil {
+		out.EventsByStatus = []StatusCount{}
 	}
 	if out.HealthcareByStatus == nil {
 		out.HealthcareByStatus = []StatusCount{}
@@ -180,6 +198,8 @@ func (r *Repository) loadKPIs(ctx context.Context, k *KPIs) error {
 		{&k.OrdersUnpaid, `SELECT COUNT(*) FROM orders WHERE payment_status = 'unpaid' AND status NOT IN ('cancelled','expired')`, nil},
 		{&k.BookingsTotal, `SELECT COUNT(*) FROM bookings`, nil},
 		{&k.BookingsToConfirm, `SELECT COUNT(*) FROM bookings WHERE status = 'confirmed'`, nil},
+		{&k.EventRequestsTotal, `SELECT COUNT(*) FROM event_requests`, nil},
+		{&k.EventsToReview, `SELECT COUNT(*) FROM event_requests WHERE status IN ('requested','reviewing')`, nil},
 		{&k.CustomersTotal, `SELECT COUNT(*) FROM users WHERE role = 'customer'`, nil},
 		{&k.CustomersNewMonth, `SELECT COUNT(*) FROM users WHERE role = 'customer' AND created_at >= ?`, []any{monthStart}},
 		{&k.ProductsActive, `SELECT COUNT(*) FROM products WHERE is_active = 1`, nil},
@@ -204,7 +224,9 @@ func (r *Repository) loadRevenueSeries(ctx context.Context) ([]RevenuePoint, err
 	err := r.db.SelectContext(ctx, &rows, `
 		SELECT DATE(marked_paid_at) AS date,
 			COALESCE(SUM(CASE WHEN payable_type = 'order' THEN amount ELSE 0 END), 0) AS orders,
-			COALESCE(SUM(CASE WHEN payable_type = 'booking' THEN amount ELSE 0 END), 0) AS bookings
+			COALESCE(SUM(CASE WHEN payable_type = 'booking' THEN amount ELSE 0 END), 0) AS bookings,
+			COALESCE(SUM(CASE WHEN payable_type = 'event' THEN amount ELSE 0 END), 0) AS events,
+			COALESCE(SUM(CASE WHEN payable_type = 'healthcare' THEN amount ELSE 0 END), 0) AS healthcare
 		FROM payments
 		WHERE status = 'paid' AND marked_paid_at >= ?
 		GROUP BY DATE(marked_paid_at)`, start)
@@ -220,9 +242,10 @@ func (r *Repository) loadRevenueSeries(ctx context.Context) ([]RevenuePoint, err
 	series := make([]RevenuePoint, 0, revenueDays)
 	for i := 0; i < revenueDays; i++ {
 		day := start.AddDate(0, 0, i).Format("2006-01-02")
-		point := RevenuePoint{Date: day, Orders: "0.00", Bookings: "0.00"}
+		point := RevenuePoint{Date: day, Orders: "0.00", Bookings: "0.00", Events: "0.00", Healthcare: "0.00"}
 		if row, ok := byDate[day]; ok {
 			point.Orders, point.Bookings = row.Orders, row.Bookings
+			point.Events, point.Healthcare = row.Events, row.Healthcare
 		}
 		series = append(series, point)
 	}
@@ -246,6 +269,16 @@ func (r *Repository) loadBookingsToConfirm(ctx context.Context) ([]AttentionItem
 		FROM bookings
 		WHERE status = 'confirmed'
 		ORDER BY start_at ASC LIMIT 5`)
+	return items, err
+}
+
+func (r *Repository) loadEventsToReview(ctx context.Context) ([]AttentionItem, error) {
+	items := []AttentionItem{}
+	err := r.db.SelectContext(ctx, &items, `
+		SELECT request_number AS number, event_type AS label, quoted_price AS total, status, created_at
+		FROM event_requests
+		WHERE status IN ('requested','reviewing')
+		ORDER BY event_start ASC LIMIT 5`)
 	return items, err
 }
 
