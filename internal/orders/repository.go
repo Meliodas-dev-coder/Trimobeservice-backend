@@ -201,11 +201,13 @@ func (r *Repository) InsertOrder(ctx context.Context, tx *sqlx.Tx, o *Order) (in
 		`INSERT INTO orders (user_id, customer_name, order_number, fulfillment_type, status, payment_status,
 		 subtotal, shipping_fee, total, reserved_until,
 		 ship_recipient_name, ship_phone, ship_line1, ship_line2, ship_city, ship_region, ship_country, ship_postal_code,
+		 ship_latitude, ship_longitude, ship_location_reference,
 		 note, placed_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		o.UserID, o.CustomerName, o.OrderNumber, o.FulfillmentType, o.Status, o.PaymentStatus,
 		o.Subtotal, o.ShippingFee, o.Total, o.ReservedUntil,
 		o.ShipRecipientName, o.ShipPhone, o.ShipLine1, o.ShipLine2, o.ShipCity, o.ShipRegion, o.ShipCountry, o.ShipPostalCode,
+		o.ShipLatitude, o.ShipLongitude, o.ShipLocationRef,
 		o.Note, o.PlacedAt)
 	if err != nil {
 		return 0, err
@@ -263,6 +265,7 @@ const orderCols = `id, user_id,
 	order_number, fulfillment_type, status, payment_status,
 	subtotal, shipping_fee, total, reserved_until,
 	ship_recipient_name, ship_phone, ship_line1, ship_line2, ship_city, ship_region, ship_country, ship_postal_code,
+	ship_latitude, ship_longitude, ship_location_reference,
 	note, placed_at, paid_at, created_at, updated_at`
 
 const orderItemCols = `id, order_id, product_variant_id, product_name, variant_label, sku, unit_price, quantity, line_total, created_at`

@@ -24,6 +24,7 @@ import (
 	"github.com/trimo/backend/internal/database"
 	"github.com/trimo/backend/internal/events"
 	"github.com/trimo/backend/internal/healthcare"
+	"github.com/trimo/backend/internal/invoicing"
 	"github.com/trimo/backend/internal/mobility"
 	"github.com/trimo/backend/internal/orders"
 	"github.com/trimo/backend/internal/payments"
@@ -97,6 +98,7 @@ func run() error {
 	eventsHandler := events.NewHandler(events.NewService(events.NewRepository(db), store))
 	healthcareHandler := healthcare.NewHandler(healthcare.NewService(healthcare.NewRepository(db), store))
 	paymentsHandler := payments.NewHandler(payments.NewService(payments.NewRepository(db)))
+	invoicingHandler := invoicing.NewHandler(invoicing.NewService(invoicing.NewRepository(db)))
 	customersHandler := customers.NewHandler(customers.NewService(customers.NewRepository(db)))
 	dashboardHandler := dashboard.NewHandler(dashboard.NewService(dashboard.NewRepository(db)))
 
@@ -134,6 +136,7 @@ func run() error {
 		events.RegisterRoutes(r, eventsHandler, authMW.RequireAuth, auditedAdmin)
 		healthcare.RegisterRoutes(r, healthcareHandler, authMW.RequireAuth, auditedAdmin)
 		payments.RegisterRoutes(r, paymentsHandler, auditedAdmin)
+		invoicing.RegisterRoutes(r, invoicingHandler, auditedAdmin)
 		customers.RegisterRoutes(r, customersHandler, authMW.RequireAdmin)
 		dashboard.RegisterRoutes(r, dashboardHandler, authMW.RequireAdmin)
 		audit.RegisterRoutes(r, auditHandler, authMW.RequireAdmin)

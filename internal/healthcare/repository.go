@@ -404,7 +404,8 @@ func (r *Repository) GetServiceRowTx(ctx context.Context, tx *sqlx.Tx, id int64)
 
 const requestCols = `id, user_id, customer_name, request_number, request_type, service_id, service_name,
 	category_name, price_snapshot, patient_name, patient_age, patient_gender, preferred_at, start_at, end_at,
-	address, symptoms, status, payment_status, paid_at, quoted_price, contact_phone, contact_email,
+	address, location_latitude, location_longitude, location_reference,
+	symptoms, status, payment_status, paid_at, quoted_price, contact_phone, contact_email,
 	note, admin_note, created_at, updated_at`
 
 const requestListCols = requestCols + `,
@@ -415,11 +416,13 @@ func (r *Repository) InsertRequest(ctx context.Context, tx *sqlx.Tx, e *Request)
 		`INSERT INTO healthcare_requests
 			(user_id, customer_name, request_number, request_type, service_id, service_name, category_name,
 			 price_snapshot, patient_name, patient_age, patient_gender, preferred_at, start_at, end_at,
-			 address, symptoms, status, payment_status, quoted_price, contact_phone, contact_email, note)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			 address, location_latitude, location_longitude, location_reference,
+			 symptoms, status, payment_status, quoted_price, contact_phone, contact_email, note)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		e.UserID, e.CustomerName, e.RequestNumber, e.RequestType, e.ServiceID, e.ServiceName, e.CategoryName,
 		e.PriceSnapshot, e.PatientName, e.PatientAge, e.PatientGender, e.PreferredAt, e.StartAt, e.EndAt,
-		e.Address, e.Symptoms, e.Status, e.PaymentStatus, e.QuotedPrice, e.ContactPhone, e.ContactEmail, e.Note)
+		e.Address, e.LocationLatitude, e.LocationLongitude, e.LocationReference,
+		e.Symptoms, e.Status, e.PaymentStatus, e.QuotedPrice, e.ContactPhone, e.ContactEmail, e.Note)
 	if err != nil {
 		return 0, mapWriteErr(err)
 	}

@@ -18,6 +18,7 @@ func RegisterRoutes(r chi.Router, h *Handler, requireAuth, requireAdmin func(htt
 		r.Use(requireAuth)
 
 		r.Post("/bookings", h.Create)
+		r.Post("/bookings/batch", h.CreateBatch)
 		r.Get("/bookings", h.ListMine)
 		r.Get("/bookings/{id}", h.GetMine)
 		r.Post("/bookings/{id}/cancel", h.Cancel)

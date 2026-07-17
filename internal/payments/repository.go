@@ -65,7 +65,11 @@ func (r *Repository) GetOrderInfo(ctx context.Context, id int64) (*targetInfo, e
 func (r *Repository) GetBookingInfo(ctx context.Context, id int64) (*targetInfo, error) {
 	var t targetInfo
 	err := r.db.GetContext(ctx, &t,
-		`SELECT status, payment_status, total_price AS total FROM bookings WHERE id = ?`, id)
+		`SELECT b.status, b.payment_status, COALESCE(bg.total_price, b.total_price) AS total
+		   FROM bookings b
+		   LEFT JOIN booking_groups bg ON bg.booking_id = b.booking_group_id
+		  WHERE b.id = ?
+		    AND (b.booking_group_id IS NULL OR b.id = b.booking_group_id)`, id)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrTargetNotFound
 	}
@@ -147,7 +151,13 @@ func (r *Repository) getOrderTarget(ctx context.Context, id int64) (*PaymentTarg
 			NULL AS start_at,
 			NULL AS end_at,
 			NULL AS pickup_location,
+			NULL AS pickup_latitude,
+			NULL AS pickup_longitude,
+			NULL AS pickup_reference,
 			NULL AS dropoff_location,
+			NULL AS dropoff_latitude,
+			NULL AS dropoff_longitude,
+			NULL AS dropoff_reference,
 			ship_phone AS contact_phone,
 			created_at
 		   FROM orders
@@ -166,24 +176,34 @@ func (r *Repository) getBookingTarget(ctx context.Context, id int64) (*PaymentTa
 	err := r.db.GetContext(ctx, &target,
 		`SELECT
 			'booking' AS target_type,
-			id,
-			user_id,
-			COALESCE(customer_name, (SELECT full_name FROM users u WHERE u.id = bookings.user_id)) AS customer_name,
-			booking_number AS number,
-			status,
-			payment_status,
-			total_price AS total,
+			b.id,
+			b.user_id,
+			COALESCE(b.customer_name, (SELECT full_name FROM users u WHERE u.id = b.user_id)) AS customer_name,
+			COALESCE(bg.booking_number, b.booking_number) AS number,
+			b.status,
+			b.payment_status,
+			COALESCE(bg.total_price, b.total_price) AS total,
 			NULL AS fulfillment_type,
-			car_name,
-			car_category,
-			start_at,
-			end_at,
-			pickup_location,
-			dropoff_location,
-			contact_phone,
-			created_at
-		   FROM bookings
-		  WHERE id = ?`, id)
+			CASE WHEN bg.booking_id IS NOT NULL
+				THEN CONCAT((SELECT COUNT(*) FROM bookings bi WHERE bi.booking_group_id = bg.booking_id), ' cars')
+				ELSE b.car_name END AS car_name,
+			CASE WHEN bg.booking_id IS NOT NULL THEN NULL ELSE b.car_category END AS car_category,
+			b.start_at,
+			b.end_at,
+			b.pickup_location,
+			b.pickup_latitude,
+			b.pickup_longitude,
+			b.pickup_reference,
+			b.dropoff_location,
+			b.dropoff_latitude,
+			b.dropoff_longitude,
+			b.dropoff_reference,
+			b.contact_phone,
+			b.created_at
+		   FROM bookings b
+		   LEFT JOIN booking_groups bg ON bg.booking_id = b.booking_group_id
+		  WHERE b.id = ?
+		    AND (b.booking_group_id IS NULL OR b.id = b.booking_group_id)`, id)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrTargetNotFound
 	}
@@ -212,7 +232,13 @@ func (r *Repository) getEventTarget(ctx context.Context, id int64) (*PaymentTarg
 			event_start AS start_at,
 			event_end AS end_at,
 			location AS pickup_location,
+			location_latitude AS pickup_latitude,
+			location_longitude AS pickup_longitude,
+			location_reference AS pickup_reference,
 			NULL AS dropoff_location,
+			NULL AS dropoff_latitude,
+			NULL AS dropoff_longitude,
+			NULL AS dropoff_reference,
 			contact_phone,
 			created_at
 		   FROM event_requests
@@ -245,7 +271,13 @@ func (r *Repository) getHealthcareTarget(ctx context.Context, id int64) (*Paymen
 			COALESCE(start_at, preferred_at) AS start_at,
 			end_at,
 			address AS pickup_location,
+			location_latitude AS pickup_latitude,
+			location_longitude AS pickup_longitude,
+			location_reference AS pickup_reference,
 			NULL AS dropoff_location,
+			NULL AS dropoff_latitude,
+			NULL AS dropoff_longitude,
+			NULL AS dropoff_reference,
 			contact_phone,
 			created_at
 		   FROM healthcare_requests
@@ -295,11 +327,11 @@ func (r *Repository) SetOrderPaymentTx(ctx context.Context, tx *sqlx.Tx, id int6
 }
 
 func (r *Repository) SetBookingPaymentTx(ctx context.Context, tx *sqlx.Tx, id int64, status string) error {
-	q := `UPDATE bookings SET payment_status = ? WHERE id = ?`
+	q := `UPDATE bookings SET payment_status = ? WHERE id = ? OR booking_group_id = ?`
 	if status == targetPaid {
-		q = `UPDATE bookings SET payment_status = ?, paid_at = NOW() WHERE id = ?`
+		q = `UPDATE bookings SET payment_status = ?, paid_at = NOW() WHERE id = ? OR booking_group_id = ?`
 	}
-	res, err := tx.ExecContext(ctx, q, status, id)
+	res, err := tx.ExecContext(ctx, q, status, id, id)
 	if err != nil {
 		return err
 	}

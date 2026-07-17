@@ -201,6 +201,7 @@ Client (require a Bearer token):
 | Method | Path | Description |
 |--------|------|-------------|
 | POST | `/api/v1/bookings` | book `{car_id, start_at, end_at, pickup_location, dropoff_location?, distance_km?, contact_phone, note?}` |
+| POST | `/api/v1/bookings/batch` | atomically book 2-10 cars for one trip with `{car_ids, start_at, end_at, pickup_location, dropoff_location?, distance_km?, outside_antananarivo?, contact_phone, note?}`; returns one booking reference and total with per-car detail/driver assignment |
 | GET | `/api/v1/bookings` | my bookings (paged) |
 | GET | `/api/v1/bookings/{id}` | my booking detail (with driver) |
 | POST | `/api/v1/bookings/{id}/cancel` | cancel while `confirmed`/`driver_assigned` |

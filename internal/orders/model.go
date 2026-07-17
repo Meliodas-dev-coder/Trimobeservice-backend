@@ -90,6 +90,9 @@ type Order struct {
 	ShipRegion        *string    `db:"ship_region" json:"ship_region,omitempty"`
 	ShipCountry       *string    `db:"ship_country" json:"ship_country,omitempty"`
 	ShipPostalCode    *string    `db:"ship_postal_code" json:"ship_postal_code,omitempty"`
+	ShipLatitude      *float64   `db:"ship_latitude" json:"ship_latitude,omitempty"`
+	ShipLongitude     *float64   `db:"ship_longitude" json:"ship_longitude,omitempty"`
+	ShipLocationRef   *string    `db:"ship_location_reference" json:"ship_location_reference,omitempty"`
 	Note              *string    `db:"note" json:"note,omitempty"`
 	PlacedAt          *time.Time `db:"placed_at" json:"placed_at,omitempty"`
 	PaidAt            *time.Time `db:"paid_at" json:"paid_at,omitempty"`
@@ -149,14 +152,17 @@ type UpdateCartItemRequest struct {
 }
 
 type ShippingAddress struct {
-	RecipientName string  `json:"recipient_name"`
-	Phone         string  `json:"phone"`
-	Line1         string  `json:"line1"`
-	Line2         *string `json:"line2"`
-	City          string  `json:"city"`
-	Region        *string `json:"region"`
-	Country       string  `json:"country"`
-	PostalCode    *string `json:"postal_code"`
+	RecipientName     string   `json:"recipient_name"`
+	Phone             string   `json:"phone"`
+	Line1             string   `json:"line1"`
+	Line2             *string  `json:"line2"`
+	City              string   `json:"city"`
+	Region            *string  `json:"region"`
+	Country           string   `json:"country"`
+	PostalCode        *string  `json:"postal_code"`
+	Latitude          *float64 `json:"latitude"`
+	Longitude         *float64 `json:"longitude"`
+	LocationReference *string  `json:"location_reference"`
 }
 
 type CheckoutRequest struct {

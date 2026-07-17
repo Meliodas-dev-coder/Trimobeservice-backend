@@ -119,7 +119,10 @@ func (r *Repository) Load(ctx context.Context) (*Dashboard, error) {
 		return nil, err
 	}
 	if err := r.db.SelectContext(ctx, &out.BookingsByStatus,
-		`SELECT status, COUNT(*) AS count FROM bookings GROUP BY status ORDER BY count DESC`); err != nil {
+		`SELECT status, COUNT(*) AS count
+		   FROM bookings
+		  WHERE booking_group_id IS NULL OR id = booking_group_id
+		  GROUP BY status ORDER BY count DESC`); err != nil {
 		return nil, err
 	}
 	if err := r.db.SelectContext(ctx, &out.EventsByStatus,
@@ -196,8 +199,8 @@ func (r *Repository) loadKPIs(ctx context.Context, k *KPIs) error {
 	}{
 		{&k.OrdersTotal, `SELECT COUNT(*) FROM orders`, nil},
 		{&k.OrdersUnpaid, `SELECT COUNT(*) FROM orders WHERE payment_status = 'unpaid' AND status NOT IN ('cancelled','expired')`, nil},
-		{&k.BookingsTotal, `SELECT COUNT(*) FROM bookings`, nil},
-		{&k.BookingsToConfirm, `SELECT COUNT(*) FROM bookings WHERE status = 'confirmed'`, nil},
+		{&k.BookingsTotal, `SELECT COUNT(*) FROM bookings WHERE booking_group_id IS NULL OR id = booking_group_id`, nil},
+		{&k.BookingsToConfirm, `SELECT COUNT(*) FROM bookings WHERE status = 'confirmed' AND (booking_group_id IS NULL OR id = booking_group_id)`, nil},
 		{&k.EventRequestsTotal, `SELECT COUNT(*) FROM event_requests`, nil},
 		{&k.EventsToReview, `SELECT COUNT(*) FROM event_requests WHERE status IN ('requested','reviewing')`, nil},
 		{&k.CustomersTotal, `SELECT COUNT(*) FROM users WHERE role = 'customer'`, nil},
@@ -265,10 +268,16 @@ func (r *Repository) loadUnpaidOrders(ctx context.Context) ([]AttentionItem, err
 func (r *Repository) loadBookingsToConfirm(ctx context.Context) ([]AttentionItem, error) {
 	items := []AttentionItem{}
 	err := r.db.SelectContext(ctx, &items, `
-		SELECT booking_number AS number, car_name AS label, NULL AS total, status, created_at
-		FROM bookings
-		WHERE status = 'confirmed'
-		ORDER BY start_at ASC LIMIT 5`)
+		SELECT COALESCE(bg.booking_number, b.booking_number) AS number,
+		       CASE WHEN bg.booking_id IS NOT NULL
+		            THEN CONCAT((SELECT COUNT(*) FROM bookings bi WHERE bi.booking_group_id = bg.booking_id), ' cars')
+		            ELSE b.car_name END AS label,
+		       NULL AS total, b.status, b.created_at
+		FROM bookings b
+		LEFT JOIN booking_groups bg ON bg.booking_id = b.booking_group_id
+		WHERE b.status = 'confirmed'
+		  AND (b.booking_group_id IS NULL OR b.id = b.booking_group_id)
+		ORDER BY b.start_at ASC LIMIT 5`)
 	return items, err
 }
 

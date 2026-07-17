@@ -385,7 +385,8 @@ func (r *Repository) GetArtistRowsTx(ctx context.Context, tx *sqlx.Tx, ids []int
 // --- event requests ---
 
 const requestCols = `id, user_id, customer_name, request_number, event_type, status, payment_status, paid_at,
-	event_start, event_end, location, guest_count, budget, quoted_price, contact_phone, contact_email,
+	event_start, event_end, location, location_latitude, location_longitude, location_reference,
+	guest_count, budget, quoted_price, contact_phone, contact_email,
 	note, admin_note, created_at, updated_at`
 
 const requestListCols = requestCols + `,
@@ -395,10 +396,12 @@ func (r *Repository) InsertRequest(ctx context.Context, tx *sqlx.Tx, e *EventReq
 	res, err := tx.ExecContext(ctx,
 		`INSERT INTO event_requests
 			(user_id, customer_name, request_number, event_type, status, payment_status,
-			 event_start, event_end, location, guest_count, budget, contact_phone, contact_email, note)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			 event_start, event_end, location, location_latitude, location_longitude, location_reference,
+			 guest_count, budget, contact_phone, contact_email, note)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		e.UserID, e.CustomerName, e.RequestNumber, e.EventType, e.Status, e.PaymentStatus,
-		e.EventStart, e.EventEnd, e.Location, e.GuestCount, e.Budget, e.ContactPhone, e.ContactEmail, e.Note)
+		e.EventStart, e.EventEnd, e.Location, e.LocationLatitude, e.LocationLongitude, e.LocationReference,
+		e.GuestCount, e.Budget, e.ContactPhone, e.ContactEmail, e.Note)
 	if err != nil {
 		return 0, mapWriteErr(err)
 	}
@@ -425,7 +428,7 @@ func (r *Repository) InsertRequestArtist(ctx context.Context, tx *sqlx.Tx, a *Re
 func (r *Repository) ListRequestArtists(ctx context.Context, requestID int64) ([]RequestArtist, error) {
 	out := []RequestArtist{}
 	err := r.db.SelectContext(ctx, &out,
-		`SELECT id, request_id, artist_id, artist_name, fee_snapshot, note, created_at
+		`SELECT id, request_id, artist_id, artist_name, fee_snapshot, quoted_fee, note, created_at
 		 FROM event_request_artists WHERE request_id = ? ORDER BY id`, requestID)
 	if err != nil {
 		return nil, err
@@ -500,12 +503,64 @@ func (r *Repository) GetForUser(ctx context.Context, userID, id int64) (*EventRe
 func (r *Repository) ListRequestServices(ctx context.Context, requestID int64) ([]RequestService, error) {
 	out := []RequestService{}
 	err := r.db.SelectContext(ctx, &out,
-		`SELECT id, request_id, service_id, service_name, category_name, from_price_snapshot, quantity, note, created_at
+		`SELECT id, request_id, service_id, service_name, category_name, from_price_snapshot, quoted_unit_price, quantity, note, created_at
 		 FROM event_request_services WHERE request_id = ? ORDER BY id`, requestID)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
+}
+
+// requestServiceLine is the id+quantity of a request's service line, used to
+// validate incoming quote lines and compute the itemized total.
+type requestServiceLine struct {
+	ID       int64 `db:"id"`
+	Quantity int   `db:"quantity"`
+}
+
+// RequestServiceLinesTx returns id→quantity for a request's service lines.
+func (r *Repository) RequestServiceLinesTx(ctx context.Context, tx *sqlx.Tx, requestID int64) (map[int64]int, error) {
+	var rows []requestServiceLine
+	if err := tx.SelectContext(ctx, &rows,
+		`SELECT id, quantity FROM event_request_services WHERE request_id = ?`, requestID); err != nil {
+		return nil, err
+	}
+	out := make(map[int64]int, len(rows))
+	for _, row := range rows {
+		out[row.ID] = row.Quantity
+	}
+	return out, nil
+}
+
+// RequestArtistIDsTx returns the set of a request's artist-line ids.
+func (r *Repository) RequestArtistIDsTx(ctx context.Context, tx *sqlx.Tx, requestID int64) (map[int64]bool, error) {
+	var ids []int64
+	if err := tx.SelectContext(ctx, &ids,
+		`SELECT id FROM event_request_artists WHERE request_id = ?`, requestID); err != nil {
+		return nil, err
+	}
+	out := make(map[int64]bool, len(ids))
+	for _, id := range ids {
+		out[id] = true
+	}
+	return out, nil
+}
+
+// SetRequestServicePriceTx records the agreed per-unit price on a service line
+// (scoped to the request so a stray id can't cross requests).
+func (r *Repository) SetRequestServicePriceTx(ctx context.Context, tx *sqlx.Tx, requestID, lineID int64, price string) error {
+	_, err := tx.ExecContext(ctx,
+		`UPDATE event_request_services SET quoted_unit_price = ? WHERE id = ? AND request_id = ?`,
+		price, lineID, requestID)
+	return err
+}
+
+// SetRequestArtistFeeTx records the agreed fee on an artist line.
+func (r *Repository) SetRequestArtistFeeTx(ctx context.Context, tx *sqlx.Tx, requestID, lineID int64, fee string) error {
+	_, err := tx.ExecContext(ctx,
+		`UPDATE event_request_artists SET quoted_fee = ? WHERE id = ? AND request_id = ?`,
+		fee, lineID, requestID)
+	return err
 }
 
 func (r *Repository) SetStatus(ctx context.Context, id int64, status string) error {
@@ -516,9 +571,10 @@ func (r *Repository) SetStatus(ctx context.Context, id int64, status string) err
 	return notFoundIfNoRows(res, ErrRequestNotFound)
 }
 
-// SetQuote sets the quoted price (and optionally an admin note) and, when the
-// request is still in an early state, advances it to 'quoted'.
-func (r *Repository) SetQuote(ctx context.Context, id int64, price string, adminNote *string, advanceToQuoted bool) error {
+// SetQuoteTx sets the quoted price (and optionally an admin note) and, when the
+// request is still in an early state, advances it to 'quoted'. Runs inside the
+// caller's tx so line prices and the total commit together.
+func (r *Repository) SetQuoteTx(ctx context.Context, tx *sqlx.Tx, id int64, price string, adminNote *string, advanceToQuoted bool) error {
 	q := `UPDATE event_requests SET quoted_price = ?`
 	args := []any{price}
 	if adminNote != nil {
@@ -530,7 +586,7 @@ func (r *Repository) SetQuote(ctx context.Context, id int64, price string, admin
 	}
 	q += ` WHERE id = ?`
 	args = append(args, id)
-	res, err := r.db.ExecContext(ctx, q, args...)
+	res, err := tx.ExecContext(ctx, q, args...)
 	if err != nil {
 		return err
 	}

@@ -20,6 +20,8 @@ var (
 	ErrInvalidTransition  = errors.New("invalid status transition")
 	ErrNotCancellable     = errors.New("event request can no longer be cancelled")
 	ErrNotQuotable        = errors.New("a quote can no longer be set for this request")
+	ErrBadQuote           = errors.New("a quoted line amount is not a valid decimal")
+	ErrUnknownQuoteLine   = errors.New("a quoted line does not belong to this request")
 )
 
 // ImageDeleter removes an image's backing file from object storage. Optional
@@ -335,20 +337,23 @@ func (s *Service) create(ctx context.Context, userID *int64, customerName string
 		}
 
 		e := &EventRequest{
-			UserID:        userID,
-			CustomerName:  customerNameSnapshot,
-			RequestNumber: newRequestNumber(),
-			EventType:     strings.TrimSpace(req.EventType),
-			Status:        StatusRequested,
-			PaymentStatus: PaymentUnpaid,
-			EventStart:    req.EventStart,
-			EventEnd:      req.EventEnd,
-			Location:      strings.TrimSpace(req.Location),
-			GuestCount:    req.GuestCount,
-			Budget:        normalizeMoney(req.Budget),
-			ContactPhone:  strings.TrimSpace(req.ContactPhone),
-			ContactEmail:  req.ContactEmail,
-			Note:          req.Note,
+			UserID:            userID,
+			CustomerName:      customerNameSnapshot,
+			RequestNumber:     newRequestNumber(),
+			EventType:         strings.TrimSpace(req.EventType),
+			Status:            StatusRequested,
+			PaymentStatus:     PaymentUnpaid,
+			EventStart:        req.EventStart,
+			EventEnd:          req.EventEnd,
+			Location:          strings.TrimSpace(req.Location),
+			LocationLatitude:  req.LocationLatitude,
+			LocationLongitude: req.LocationLongitude,
+			LocationReference: req.LocationReference,
+			GuestCount:        req.GuestCount,
+			Budget:            normalizeMoney(req.Budget),
+			ContactPhone:      strings.TrimSpace(req.ContactPhone),
+			ContactEmail:      req.ContactEmail,
+			Note:              req.Note,
 		}
 		id, err := s.repo.InsertRequest(ctx, tx, e)
 		if err != nil {
@@ -473,8 +478,10 @@ func (s *Service) UpdateStatus(ctx context.Context, id int64, target string) (*E
 	return s.detail(ctx, id)
 }
 
-// SetQuote records (or revises) the admin quote. From an early state it also
-// advances the request to 'quoted'.
+// SetQuote records (or revises) the admin quote. When a per-line breakdown is
+// supplied, each service/artist line is priced and the quoted total is their
+// sum; otherwise a single lump amount is stored. From an early state it also
+// advances the request to 'quoted'. Line prices and the total commit atomically.
 func (s *Service) SetQuote(ctx context.Context, id int64, req QuoteRequest) (*EventRequestDetail, error) {
 	e, err := s.repo.GetByID(ctx, id)
 	if err != nil {
@@ -484,10 +491,68 @@ func (s *Service) SetQuote(ctx context.Context, id int64, req QuoteRequest) (*Ev
 		return nil, ErrNotQuotable
 	}
 	advance := e.Status == StatusRequested || e.Status == StatusReviewing
-	if err := s.repo.SetQuote(ctx, id, strings.TrimSpace(req.QuotedPrice), req.AdminNote, advance); err != nil {
+
+	err = s.repo.InTx(ctx, func(tx *sqlx.Tx) error {
+		price := strings.TrimSpace(req.QuotedPrice)
+		if req.itemized() {
+			total, err := s.applyQuoteLines(ctx, tx, id, req)
+			if err != nil {
+				return err
+			}
+			price = formatCents(total)
+		}
+		return s.repo.SetQuoteTx(ctx, tx, id, price, req.AdminNote, advance)
+	})
+	if err != nil {
 		return nil, err
 	}
 	return s.detail(ctx, id)
+}
+
+// applyQuoteLines writes each agreed line price and returns the summed total in
+// cents. Every supplied line id must belong to the request.
+func (s *Service) applyQuoteLines(ctx context.Context, tx *sqlx.Tx, id int64, req QuoteRequest) (int64, error) {
+	svcQty, err := s.repo.RequestServiceLinesTx(ctx, tx, id)
+	if err != nil {
+		return 0, err
+	}
+	artistIDs, err := s.repo.RequestArtistIDsTx(ctx, tx, id)
+	if err != nil {
+		return 0, err
+	}
+
+	var total int64
+	for _, ln := range req.Services {
+		qty, ok := svcQty[ln.ID]
+		if !ok {
+			return 0, ErrUnknownQuoteLine
+		}
+		priceC, err := parseCents(ln.Price)
+		if err != nil || priceC < 0 {
+			return 0, ErrBadQuote
+		}
+		if qty < 1 {
+			qty = 1
+		}
+		total += priceC * int64(qty)
+		if err := s.repo.SetRequestServicePriceTx(ctx, tx, id, ln.ID, formatCents(priceC)); err != nil {
+			return 0, err
+		}
+	}
+	for _, ln := range req.Artists {
+		if !artistIDs[ln.ID] {
+			return 0, ErrUnknownQuoteLine
+		}
+		feeC, err := parseCents(ln.Price)
+		if err != nil || feeC < 0 {
+			return 0, ErrBadQuote
+		}
+		total += feeC
+		if err := s.repo.SetRequestArtistFeeTx(ctx, tx, id, ln.ID, formatCents(feeC)); err != nil {
+			return 0, err
+		}
+	}
+	return total, nil
 }
 
 // --- helpers ---

@@ -1,6 +1,8 @@
 package bookings
 
 import (
+	"errors"
+	"reflect"
 	"testing"
 	"time"
 )
@@ -66,6 +68,59 @@ func TestIsDeletableRequiresUnpaidBooking(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := isDeletable(tt.booking); got != tt.want {
 				t.Fatalf("isDeletable() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestOrderedBatchCarIDs(t *testing.T) {
+	got, err := orderedBatchCarIDs([]int64{9, 2, 5})
+	if err != nil {
+		t.Fatalf("orderedBatchCarIDs() error = %v", err)
+	}
+	if want := []int64{2, 5, 9}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("orderedBatchCarIDs() = %v, want %v", got, want)
+	}
+
+	if _, err := orderedBatchCarIDs([]int64{4, 4}); !errors.Is(err, ErrDuplicateCar) {
+		t.Fatalf("duplicate error = %v, want %v", err, ErrDuplicateCar)
+	}
+	if _, err := orderedBatchCarIDs(nil); !errors.Is(err, ErrCarSelectionRequired) {
+		t.Fatalf("empty selection error = %v, want %v", err, ErrCarSelectionRequired)
+	}
+	if _, err := orderedBatchCarIDs([]int64{4}); !errors.Is(err, ErrCarSelectionRequired) {
+		t.Fatalf("single-car selection error = %v, want %v", err, ErrCarSelectionRequired)
+	}
+}
+
+func TestValidateCreateBookingBatch(t *testing.T) {
+	start := time.Now().Add(24 * time.Hour)
+	valid := CreateBookingBatchRequest{
+		CarIDs:         []int64{1, 2},
+		StartAt:        start,
+		EndAt:          start.Add(24 * time.Hour),
+		PickupLocation: "Ivato Airport",
+		ContactPhone:   "+261340000000",
+	}
+	if problems := validateCreateBookingBatch(valid); len(problems) != 0 {
+		t.Fatalf("valid batch problems = %v", problems)
+	}
+
+	tests := []struct {
+		name   string
+		carIDs []int64
+	}{
+		{name: "one car belongs on single endpoint", carIDs: []int64{1}},
+		{name: "duplicate car", carIDs: []int64{1, 1}},
+		{name: "invalid car", carIDs: []int64{1, 0}},
+		{name: "too many cars", carIDs: []int64{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := valid
+			req.CarIDs = tt.carIDs
+			if problems := validateCreateBookingBatch(req); problems["car_ids"] == "" {
+				t.Fatalf("car_ids problem missing: %v", problems)
 			}
 		})
 	}

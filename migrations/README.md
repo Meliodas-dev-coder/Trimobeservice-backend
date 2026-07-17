@@ -24,6 +24,15 @@ MySQL 8.0+ schema for the Trimo multiservice platform, written for
 | 000014 | `event_artists` | `artists` and `event_request_artists` (bookable gospel artists) |
 | 000015 | `brand_departments` | `brands.department` (tech/fashion split for the catalog) |
 | 000016 | `healthcare` | `practitioners`, `healthcare_service_categories`, `healthcare_services`, `healthcare_package_staff`, `healthcare_requests`, `healthcare_request_assignments`, `healthcare_settings`; extends `payments.payable_type` with `healthcare` |
+| 000017 | `content_translations` | localized content snapshots |
+| 000018 | `coffee_catalog_seed` | coffee catalog seed data |
+| 000019 | `audit_logs` | admin audit log |
+| 000020 | `cargo_fuel_pricing` | cargo fuel-pricing fields |
+| 000021 | `restore_cargo_distance_pricing` | restores distance-based cargo pricing |
+| 000022 | `outside_antananarivo_pricing` | outside-region booking rate snapshots |
+| 000023 | `category_outside_antananarivo_default` | category default outside-region rates |
+| 000024 | `booking_groups` | one booking reference/payment total with multiple per-car booking items |
+| 000025 | `invoicing` | `org_settings` (seller identity), `invoices`, `invoice_lines`, `invoice_sequences` (per-kind/year gapless numbering) |
 
 They must apply in order — later migrations reference earlier tables via
 foreign keys.
@@ -63,9 +72,24 @@ foreign keys.
 - **No double-booking.** Enforced in two layers: the application must check
   availability inside the booking transaction with `SELECT ... FOR UPDATE`, and
   the triggers in 000007 are the DB-level safety net.
+- **Multi-car bookings.** `booking_groups` gives 2–10 reserved cars one public
+  booking reference and aggregate payable total. The underlying `bookings`
+  rows remain per-car items for overlap protection and driver assignment.
+- **Customer location pins.** Delivery, car pickup/dropoff, event, and home-care
+  requests can store exact latitude/longitude coordinates plus a nearby meeting
+  reference. Address text remains available for older records and as a fallback.
 - **Manual payments.** `payments` records what an admin confirms (cash / bank
   transfer / mobile money) for orders, bookings, quoted event requests, and
   healthcare requests. Adding a real gateway later is just a new `method`.
+- **Invoicing.** `invoices` sits above all four domains via
+  `(invoiceable_type, invoiceable_id)` — the same polymorphism as `payments`.
+  An invoice is a **frozen document**: seller identity (snapshotted from
+  `org_settings`), buyer identity, `invoice_lines`, and totals are captured at
+  issue time, so later edits never rewrite a sent document. Three `kind`s share
+  the table — `proforma`, `final`, `credit_note` — each numbered from its own
+  gapless per-year `invoice_sequences` counter. Tax is settings-driven
+  (`org_settings.default_tax_rate`, 0 until TVA-registered). Amount paid /
+  balance due are derived live from the `payments` ledger, never stored.
 - **Healthcare (home care).** A doctor/nurse `practitioners` roster (like
   `drivers`) is assigned to `healthcare_requests`. A request is either a
   quote-priced **consultation** or a fixed-price **package** whose staff makeup

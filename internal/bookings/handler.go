@@ -114,6 +114,28 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 	httpx.JSON(w, http.StatusCreated, httpx.Envelope{"booking": b})
 }
 
+func (h *Handler) CreateBatch(w http.ResponseWriter, r *http.Request) {
+	uid, ok := userID(w, r)
+	if !ok {
+		return
+	}
+	var req CreateBookingBatchRequest
+	if !decode(w, r, &req) {
+		return
+	}
+	if p := validateCreateBookingBatch(req); len(p) > 0 {
+		httpx.ValidationError(w, p)
+		return
+	}
+	b, err := h.svc.CreateBatch(r.Context(), uid, req)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	h.publishCreated(b)
+	httpx.JSON(w, http.StatusCreated, httpx.Envelope{"booking": b})
+}
+
 func (h *Handler) ListMine(w http.ResponseWriter, r *http.Request) {
 	uid, ok := userID(w, r)
 	if !ok {
@@ -249,7 +271,15 @@ func (h *Handler) AssignDriver(w http.ResponseWriter, r *http.Request) {
 		httpx.ValidationError(w, map[string]string{"driver_id": "is required"})
 		return
 	}
-	b, err := h.svc.AssignDriver(r.Context(), id, req.DriverID)
+	itemID := int64(0)
+	if req.BookingItemID != nil {
+		itemID = *req.BookingItemID
+		if itemID <= 0 {
+			httpx.ValidationError(w, map[string]string{"booking_item_id": "must be greater than zero"})
+			return
+		}
+	}
+	b, err := h.svc.AssignDriverForBooking(r.Context(), id, itemID, req.DriverID)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -342,6 +372,8 @@ func writeError(w http.ResponseWriter, err error) {
 		httpx.Error(w, http.StatusConflict, err.Error())
 	case errors.Is(err, ErrInvalidDates),
 		errors.Is(err, ErrPastStart),
+		errors.Is(err, ErrCarSelectionRequired),
+		errors.Is(err, ErrDuplicateCar),
 		errors.Is(err, ErrDistanceRequired),
 		errors.Is(err, ErrInvalidDistance),
 		errors.Is(err, ErrRegionChoiceRequired):

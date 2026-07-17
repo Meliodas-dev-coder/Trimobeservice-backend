@@ -562,7 +562,9 @@ func writeError(w http.ResponseWriter, err error) {
 		httpx.Error(w, http.StatusConflict, err.Error())
 	case errors.Is(err, ErrInvalidCategory),
 		errors.Is(err, ErrServiceUnavailable),
-		errors.Is(err, ErrArtistUnavailable):
+		errors.Is(err, ErrArtistUnavailable),
+		errors.Is(err, ErrBadQuote),
+		errors.Is(err, ErrUnknownQuoteLine):
 		httpx.Error(w, http.StatusUnprocessableEntity, err.Error())
 	default:
 		httpx.Error(w, http.StatusInternalServerError, "internal server error")

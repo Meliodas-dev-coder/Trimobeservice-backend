@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -28,6 +29,8 @@ var (
 	ErrInvalidDistance      = errors.New("distance_km must be a positive decimal distance")
 	ErrRegionChoiceRequired = errors.New("outside_antananarivo must be selected for standard car bookings")
 	ErrBookingHasPayments   = errors.New("bookings with payment history cannot be deleted")
+	ErrCarSelectionRequired = errors.New("at least two cars are required")
+	ErrDuplicateCar         = errors.New("the same car cannot be booked twice in one request")
 )
 
 type Service struct {
@@ -83,7 +86,13 @@ func (s *Service) CreateAdmin(ctx context.Context, req AdminCreateBookingRequest
 		StartAt:             req.StartAt,
 		EndAt:               req.EndAt,
 		PickupLocation:      req.PickupLocation,
+		PickupLatitude:      req.PickupLatitude,
+		PickupLongitude:     req.PickupLongitude,
+		PickupReference:     req.PickupReference,
 		DropoffLocation:     req.DropoffLocation,
+		DropoffLatitude:     req.DropoffLatitude,
+		DropoffLongitude:    req.DropoffLongitude,
+		DropoffReference:    req.DropoffReference,
 		ContactPhone:        req.ContactPhone,
 		DistanceKm:          req.DistanceKm,
 		OutsideAntananarivo: req.OutsideAntananarivo,
@@ -196,7 +205,13 @@ func (s *Service) create(ctx context.Context, userID *int64, customerName string
 			CarName:             car.Name,
 			CarCategory:         catName,
 			PickupLocation:      strings.TrimSpace(req.PickupLocation),
+			PickupLatitude:      req.PickupLatitude,
+			PickupLongitude:     req.PickupLongitude,
+			PickupReference:     req.PickupReference,
 			DropoffLocation:     req.DropoffLocation,
+			DropoffLatitude:     req.DropoffLatitude,
+			DropoffLongitude:    req.DropoffLongitude,
+			DropoffReference:    req.DropoffReference,
 			ContactPhone:        strings.TrimSpace(req.ContactPhone),
 			Note:                req.Note,
 		}
@@ -232,6 +247,180 @@ func (s *Service) create(ctx context.Context, userID *int64, customerName string
 	return s.detail(ctx, bookingID)
 }
 
+// CreateBatch reserves several physical cars for one trip in a single
+// transaction. Cars are locked in ID order to keep concurrent batch requests
+// deadlock-safe. If any car is unavailable or overlaps, the whole batch rolls
+// back so customers never receive a partial reservation.
+func (s *Service) CreateBatch(ctx context.Context, userID int64, req CreateBookingBatchRequest) (*BookingDetail, error) {
+	carIDs, err := orderedBatchCarIDs(req.CarIDs)
+	if err != nil {
+		return nil, err
+	}
+	if !req.EndAt.After(req.StartAt) {
+		return nil, ErrInvalidDates
+	}
+
+	var bookingID int64
+	err = s.repo.InTx(ctx, func(tx *sqlx.Tx) error {
+		cars := make(map[int64]*carRow, len(carIDs))
+		for _, carID := range carIDs {
+			car, err := s.repo.LockCar(ctx, tx, carID)
+			if err != nil {
+				return err
+			}
+			cars[carID] = car
+		}
+
+		customerName, err := s.repo.CustomerName(ctx, tx, userID)
+		if err != nil {
+			return err
+		}
+		now := time.Now()
+		pending := make([]*Booking, 0, len(req.CarIDs))
+		var combinedTotal int64
+		for _, carID := range req.CarIDs {
+			item := req.bookingFor(carID)
+			car := cars[carID]
+			if car.Status != carStatusAvailable {
+				return ErrCarUnavailable
+			}
+			if item.StartAt.Before(now) && !isAllowedTodayCargoWindow(car, item.StartAt, item.EndAt) {
+				return ErrPastStart
+			}
+			overlap, err := s.repo.HasCarOverlap(ctx, tx, car.ID, 0, item.StartAt, item.EndAt)
+			if err != nil {
+				return err
+			}
+			if overlap {
+				return ErrCarNotFree
+			}
+			catName, err := s.repo.CategoryName(ctx, tx, car.CategoryID)
+			if err != nil {
+				return err
+			}
+
+			bookingDays := billableDays(item.StartAt, item.EndAt)
+			selectedDailyRate, outsideAntananarivo, err := bookingDailyRate(car, item.OutsideAntananarivo)
+			if err != nil {
+				return err
+			}
+			rateCents, err := parseCents(selectedDailyRate)
+			if err != nil {
+				return err
+			}
+			pricingModel := PricingDaily
+			total := rateCents * int64(bookingDays)
+			var distanceKm *string
+			var cargoPerKmRate *string
+			var cargoMinimumRate *string
+			if car.IsCargoTransport {
+				if item.DropoffLocation == nil || strings.TrimSpace(*item.DropoffLocation) == "" || item.DistanceKm == nil {
+					return ErrDistanceRequired
+				}
+				distanceHundredths, err := parseDistanceHundredths(*item.DistanceKm)
+				if err != nil || distanceHundredths <= 0 {
+					return ErrInvalidDistance
+				}
+				perKmCents, err := parseCents(car.CargoPerKmRate)
+				if err != nil {
+					return err
+				}
+				minimumCents, err := parseCents(car.CargoMinimumRate)
+				if err != nil {
+					return err
+				}
+				pricingModel = PricingCargoDistance
+				bookingDays = 1
+				total = cargoTotalCents(distanceHundredths, perKmCents, minimumCents)
+				distance := formatHundredths(distanceHundredths)
+				distanceKm = &distance
+				perKmRate := car.CargoPerKmRate
+				minimumRate := car.CargoMinimumRate
+				cargoPerKmRate = &perKmRate
+				cargoMinimumRate = &minimumRate
+			}
+
+			b := &Booking{
+				UserID:              &userID,
+				CustomerName:        customerName,
+				CarID:               car.ID,
+				BookingNumber:       newBookingNumber(),
+				Status:              StatusConfirmed,
+				PaymentStatus:       PaymentUnpaid,
+				StartAt:             item.StartAt,
+				EndAt:               item.EndAt,
+				Days:                bookingDays,
+				DailyRateSnapshot:   selectedDailyRate,
+				OutsideAntananarivo: outsideAntananarivo,
+				Fees:                "0.00",
+				TotalPrice:          formatCents(total),
+				PricingModel:        pricingModel,
+				DistanceKm:          distanceKm,
+				CargoPerKmRate:      cargoPerKmRate,
+				CargoMinimumRate:    cargoMinimumRate,
+				CarName:             car.Name,
+				CarCategory:         catName,
+				PickupLocation:      strings.TrimSpace(item.PickupLocation),
+				PickupLatitude:      item.PickupLatitude,
+				PickupLongitude:     item.PickupLongitude,
+				PickupReference:     item.PickupReference,
+				DropoffLocation:     item.DropoffLocation,
+				DropoffLatitude:     item.DropoffLatitude,
+				DropoffLongitude:    item.DropoffLongitude,
+				DropoffReference:    item.DropoffReference,
+				ContactPhone:        strings.TrimSpace(item.ContactPhone),
+				Note:                item.Note,
+			}
+			pending = append(pending, b)
+			combinedTotal += total
+		}
+
+		firstID, err := s.repo.InsertBooking(ctx, tx, pending[0])
+		if err != nil {
+			return err
+		}
+		bookingID = firstID
+		if err := s.repo.InsertBookingGroup(ctx, tx, firstID, pending[0].BookingNumber, formatCents(combinedTotal)); err != nil {
+			return err
+		}
+		if err := s.repo.SetBookingGroup(ctx, tx, firstID, firstID); err != nil {
+			return err
+		}
+		for _, item := range pending[1:] {
+			item.BookingGroupID = &firstID
+			if _, err := s.repo.InsertBooking(ctx, tx, item); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return s.detail(ctx, bookingID)
+}
+
+func orderedBatchCarIDs(carIDs []int64) ([]int64, error) {
+	if len(carIDs) < 2 {
+		return nil, ErrCarSelectionRequired
+	}
+	seen := make(map[int64]struct{}, len(carIDs))
+	ordered := make([]int64, 0, len(carIDs))
+	for _, carID := range carIDs {
+		if carID <= 0 {
+			return nil, ErrCarSelectionRequired
+		}
+		if _, exists := seen[carID]; exists {
+			return nil, ErrDuplicateCar
+		}
+		seen[carID] = struct{}{}
+		ordered = append(ordered, carID)
+	}
+	sort.Slice(ordered, func(i, j int) bool { return ordered[i] < ordered[j] })
+	return ordered, nil
+}
+
 // --- customer actions ---
 
 func (s *Service) ListMyBookings(ctx context.Context, userID int64, limit, offset int) ([]Booking, int, error) {
@@ -243,7 +432,7 @@ func (s *Service) GetMyBooking(ctx context.Context, userID, id int64) (*BookingD
 	if err != nil {
 		return nil, err
 	}
-	return s.attachDriver(ctx, b)
+	return s.detail(ctx, bookingRootID(b))
 }
 
 func (s *Service) CancelMyBooking(ctx context.Context, userID, id int64) (*BookingDetail, error) {
@@ -251,13 +440,20 @@ func (s *Service) CancelMyBooking(ctx context.Context, userID, id int64) (*Booki
 	if err != nil {
 		return nil, err
 	}
+	rootID := bookingRootID(b)
+	if rootID != b.ID {
+		b, err = s.repo.GetForUser(ctx, userID, rootID)
+		if err != nil {
+			return nil, err
+		}
+	}
 	if !isCancellable(b.Status) {
 		return nil, ErrNotCancellable
 	}
-	if err := s.repo.SetStatus(ctx, id, StatusCancelled); err != nil {
+	if err := s.repo.SetStatus(ctx, rootID, StatusCancelled); err != nil {
 		return nil, err
 	}
-	return s.detail(ctx, id)
+	return s.detail(ctx, rootID)
 }
 
 // --- admin actions ---
@@ -278,10 +474,17 @@ func (s *Service) Delete(ctx context.Context, id int64) error {
 	if err != nil {
 		return err
 	}
+	rootID := bookingRootID(b)
+	if rootID != b.ID {
+		b, err = s.repo.GetByID(ctx, rootID)
+		if err != nil {
+			return err
+		}
+	}
 	if !isDeletable(b) {
 		return ErrBookingHasPayments
 	}
-	return s.repo.DeleteBooking(ctx, id)
+	return s.repo.DeleteBooking(ctx, rootID)
 }
 
 // AssignDriver attaches a driver to a confirmed booking, ensuring the driver is
@@ -317,18 +520,47 @@ func (s *Service) AssignDriver(ctx context.Context, bookingID, driverID int64) (
 	return s.detail(ctx, bookingID)
 }
 
+// AssignDriverForBooking assigns a driver to one car item and verifies that
+// the item belongs to the booking shown in the admin UI. For single-car
+// bookings itemID may be zero, in which case the booking itself is assigned.
+func (s *Service) AssignDriverForBooking(ctx context.Context, bookingID, itemID, driverID int64) (*BookingDetail, error) {
+	booking, err := s.repo.GetByID(ctx, bookingID)
+	if err != nil {
+		return nil, err
+	}
+	rootID := bookingRootID(booking)
+	if itemID == 0 {
+		itemID = bookingID
+	}
+	item, err := s.repo.GetByID(ctx, itemID)
+	if err != nil {
+		return nil, err
+	}
+	if bookingRootID(item) != rootID {
+		return nil, ErrBookingNotFound
+	}
+	return s.AssignDriver(ctx, itemID, driverID)
+}
+
 func (s *Service) UpdateStatus(ctx context.Context, id int64, target string) (*BookingDetail, error) {
 	b, err := s.repo.GetByID(ctx, id)
 	if err != nil {
 		return nil, err
 	}
+	rootID := bookingRootID(b)
+	if rootID != b.ID {
+		b, err = s.repo.GetByID(ctx, rootID)
+		if err != nil {
+			return nil, err
+		}
+	}
 	if !canTransition(b.Status, target) {
 		return nil, ErrInvalidTransition
 	}
-	if err := s.repo.SetStatus(ctx, id, target); err != nil {
+	if err := s.repo.SetStatus(ctx, rootID, target); err != nil {
 		return nil, err
 	}
-	return s.detail(ctx, id)
+	return s.detail(ctx, rootID)
 }
 
 // --- helpers ---
@@ -338,7 +570,39 @@ func (s *Service) detail(ctx context.Context, id int64) (*BookingDetail, error) 
 	if err != nil {
 		return nil, err
 	}
+	rootID := bookingRootID(b)
+	if rootID != b.ID {
+		b, err = s.repo.GetByID(ctx, rootID)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if b.IsMultiCar {
+		cars, err := s.repo.ListBookingCars(ctx, rootID)
+		if err != nil {
+			return nil, err
+		}
+		for i := range cars {
+			if cars[i].DriverID == nil {
+				continue
+			}
+			if driver, err := s.repo.DriverInfo(ctx, *cars[i].DriverID); err == nil {
+				cars[i].Driver = driver
+			}
+		}
+		return &BookingDetail{Booking: *b, Cars: cars}, nil
+	}
 	return s.attachDriver(ctx, b)
+}
+
+func bookingRootID(b *Booking) int64 {
+	if b != nil && b.BookingGroupID != nil {
+		return *b.BookingGroupID
+	}
+	if b == nil {
+		return 0
+	}
+	return b.ID
 }
 
 func (s *Service) attachDriver(ctx context.Context, b *Booking) (*BookingDetail, error) {

@@ -74,32 +74,37 @@ type EventService struct {
 // --- transaction: an event request ---
 
 type EventRequest struct {
-	ID            int64      `db:"id" json:"id"`
-	UserID        *int64     `db:"user_id" json:"user_id,omitempty"`
-	CustomerName  *string    `db:"customer_name" json:"customer_name,omitempty"`
-	RequestNumber string     `db:"request_number" json:"request_number"`
-	EventType     string     `db:"event_type" json:"event_type"`
-	Status        string     `db:"status" json:"status"`
-	PaymentStatus string     `db:"payment_status" json:"payment_status"`
-	PaidAt        *time.Time `db:"paid_at" json:"paid_at,omitempty"`
-	EventStart    time.Time  `db:"event_start" json:"event_start"`
-	EventEnd      *time.Time `db:"event_end" json:"event_end,omitempty"`
-	Location      string     `db:"location" json:"location"`
-	GuestCount    *int       `db:"guest_count" json:"guest_count,omitempty"`
-	Budget        *string    `db:"budget" json:"budget,omitempty"`
-	QuotedPrice   *string    `db:"quoted_price" json:"quoted_price,omitempty"`
-	ContactPhone  string     `db:"contact_phone" json:"contact_phone"`
-	ContactEmail  *string    `db:"contact_email" json:"contact_email,omitempty"`
-	Note          *string    `db:"note" json:"note,omitempty"`
-	AdminNote     *string    `db:"admin_note" json:"admin_note,omitempty"`
-	CreatedAt     time.Time  `db:"created_at" json:"created_at"`
-	UpdatedAt     time.Time  `db:"updated_at" json:"updated_at"`
+	ID                int64      `db:"id" json:"id"`
+	UserID            *int64     `db:"user_id" json:"user_id,omitempty"`
+	CustomerName      *string    `db:"customer_name" json:"customer_name,omitempty"`
+	RequestNumber     string     `db:"request_number" json:"request_number"`
+	EventType         string     `db:"event_type" json:"event_type"`
+	Status            string     `db:"status" json:"status"`
+	PaymentStatus     string     `db:"payment_status" json:"payment_status"`
+	PaidAt            *time.Time `db:"paid_at" json:"paid_at,omitempty"`
+	EventStart        time.Time  `db:"event_start" json:"event_start"`
+	EventEnd          *time.Time `db:"event_end" json:"event_end,omitempty"`
+	Location          string     `db:"location" json:"location"`
+	LocationLatitude  *float64   `db:"location_latitude" json:"location_latitude,omitempty"`
+	LocationLongitude *float64   `db:"location_longitude" json:"location_longitude,omitempty"`
+	LocationReference *string    `db:"location_reference" json:"location_reference,omitempty"`
+	GuestCount        *int       `db:"guest_count" json:"guest_count,omitempty"`
+	Budget            *string    `db:"budget" json:"budget,omitempty"`
+	QuotedPrice       *string    `db:"quoted_price" json:"quoted_price,omitempty"`
+	ContactPhone      string     `db:"contact_phone" json:"contact_phone"`
+	ContactEmail      *string    `db:"contact_email" json:"contact_email,omitempty"`
+	Note              *string    `db:"note" json:"note,omitempty"`
+	AdminNote         *string    `db:"admin_note" json:"admin_note,omitempty"`
+	CreatedAt         time.Time  `db:"created_at" json:"created_at"`
+	UpdatedAt         time.Time  `db:"updated_at" json:"updated_at"`
 
 	// List-only aggregate.
 	ServiceCount int `db:"service_count" json:"service_count"`
 }
 
-// RequestService is a service line snapshotted onto a request.
+// RequestService is a service line snapshotted onto a request. QuotedUnitPrice
+// is the admin's agreed per-unit price (NULL until the request is itemized-quoted);
+// FromPriceSnapshot is the indicative catalog price, kept for reference.
 type RequestService struct {
 	ID                int64     `db:"id" json:"id"`
 	RequestID         int64     `db:"request_id" json:"request_id"`
@@ -107,6 +112,7 @@ type RequestService struct {
 	ServiceName       string    `db:"service_name" json:"service_name"`
 	CategoryName      *string   `db:"category_name" json:"category_name,omitempty"`
 	FromPriceSnapshot *string   `db:"from_price_snapshot" json:"from_price_snapshot,omitempty"`
+	QuotedUnitPrice   *string   `db:"quoted_unit_price" json:"quoted_unit_price,omitempty"`
 	Quantity          int       `db:"quantity" json:"quantity"`
 	Note              *string   `db:"note" json:"note,omitempty"`
 	CreatedAt         time.Time `db:"created_at" json:"created_at"`
@@ -148,13 +154,15 @@ type Artist struct {
 	UpdatedAt    time.Time      `db:"updated_at" json:"updated_at"`
 }
 
-// RequestArtist is an artist named on a request, snapshotted.
+// RequestArtist is an artist named on a request, snapshotted. QuotedFee is the
+// admin's agreed fee (NULL until itemized-quoted); FeeSnapshot is indicative.
 type RequestArtist struct {
 	ID          int64     `db:"id" json:"id"`
 	RequestID   int64     `db:"request_id" json:"request_id"`
 	ArtistID    *int64    `db:"artist_id" json:"artist_id,omitempty"`
 	ArtistName  string    `db:"artist_name" json:"artist_name"`
 	FeeSnapshot *string   `db:"fee_snapshot" json:"fee_snapshot,omitempty"`
+	QuotedFee   *string   `db:"quoted_fee" json:"quoted_fee,omitempty"`
 	Note        *string   `db:"note" json:"note,omitempty"`
 	CreatedAt   time.Time `db:"created_at" json:"created_at"`
 }
@@ -243,17 +251,20 @@ type SelectedArtist struct {
 }
 
 type CreateEventRequest struct {
-	EventType    string            `json:"event_type"`
-	EventStart   time.Time         `json:"event_start"` // RFC3339
-	EventEnd     *time.Time        `json:"event_end"`   // RFC3339, optional
-	Location     string            `json:"location"`
-	GuestCount   *int              `json:"guest_count"`
-	Budget       *string           `json:"budget"`
-	ContactPhone string            `json:"contact_phone"`
-	ContactEmail *string           `json:"contact_email"`
-	Note         *string           `json:"note"`
-	Services     []SelectedService `json:"services"`
-	Artists      []SelectedArtist  `json:"artists"`
+	EventType         string            `json:"event_type"`
+	EventStart        time.Time         `json:"event_start"` // RFC3339
+	EventEnd          *time.Time        `json:"event_end"`   // RFC3339, optional
+	Location          string            `json:"location"`
+	LocationLatitude  *float64          `json:"location_latitude"`
+	LocationLongitude *float64          `json:"location_longitude"`
+	LocationReference *string           `json:"location_reference"`
+	GuestCount        *int              `json:"guest_count"`
+	Budget            *string           `json:"budget"`
+	ContactPhone      string            `json:"contact_phone"`
+	ContactEmail      *string           `json:"contact_email"`
+	Note              *string           `json:"note"`
+	Services          []SelectedService `json:"services"`
+	Artists           []SelectedArtist  `json:"artists"`
 }
 
 // ArtistRequest is the admin create/update payload for an artist.
@@ -288,10 +299,25 @@ type UpdateStatusRequest struct {
 	Status string `json:"status"`
 }
 
-// QuoteRequest sets (or revises) the admin quote for a request.
+// QuoteLine prices one selected service or artist by its request-line id.
+type QuoteLine struct {
+	ID    int64  `json:"id"`    // event_request_services.id or event_request_artists.id
+	Price string `json:"price"` // agreed unit price (service) / fee (artist), DECIMAL(12,2)
+}
+
+// QuoteRequest sets (or revises) the admin quote. When Services/Artists are
+// supplied the request is priced line-by-line and quoted_price is their sum;
+// otherwise QuotedPrice sets a single lump total (legacy/simple flow).
 type QuoteRequest struct {
-	QuotedPrice string  `json:"quoted_price"`
-	AdminNote   *string `json:"admin_note"`
+	QuotedPrice string      `json:"quoted_price"`
+	Services    []QuoteLine `json:"services"`
+	Artists     []QuoteLine `json:"artists"`
+	AdminNote   *string     `json:"admin_note"`
+}
+
+// itemized reports whether a per-line breakdown was supplied.
+func (q QuoteRequest) itemized() bool {
+	return len(q.Services) > 0 || len(q.Artists) > 0
 }
 
 func derefBool(b *bool, def bool) bool {

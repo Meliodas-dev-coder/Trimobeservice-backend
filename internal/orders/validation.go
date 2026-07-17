@@ -73,9 +73,26 @@ func validateFulfillment(p map[string]string, fulfillment string, a *ShippingAdd
 		if strings.TrimSpace(a.Country) == "" {
 			p["shipping_address.country"] = "is required"
 		}
+		validateCoordinates(p, "shipping_address", a.Latitude, a.Longitude)
 	case FulfillmentPickup:
 		// no address needed
 	default:
 		p["fulfillment_type"] = "must be 'delivery' or 'pickup'"
+	}
+}
+
+func validateCoordinates(p map[string]string, prefix string, latitude, longitude *float64) {
+	if (latitude == nil) != (longitude == nil) {
+		p[prefix+".coordinates"] = "latitude and longitude must be provided together"
+		return
+	}
+	if latitude == nil {
+		return
+	}
+	if *latitude < -90 || *latitude > 90 {
+		p[prefix+".latitude"] = "must be between -90 and 90"
+	}
+	if *longitude < -180 || *longitude > 180 {
+		p[prefix+".longitude"] = "must be between -180 and 180"
 	}
 }

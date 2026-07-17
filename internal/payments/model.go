@@ -65,25 +65,31 @@ type PaymentDetail struct {
 }
 
 type PaymentTarget struct {
-	Type            string              `db:"target_type" json:"type"`
-	ID              int64               `db:"id" json:"id"`
-	UserID          *int64              `db:"user_id" json:"user_id,omitempty"`
-	CustomerName    *string             `db:"customer_name" json:"customer_name,omitempty"`
-	Number          string              `db:"number" json:"number"`
-	Status          string              `db:"status" json:"status"`
-	PaymentStatus   string              `db:"payment_status" json:"payment_status"`
-	Total           string              `db:"total" json:"total"`
-	FulfillmentType *string             `db:"fulfillment_type" json:"fulfillment_type,omitempty"`
-	CarName         *string             `db:"car_name" json:"car_name,omitempty"`
-	CarCategory     *string             `db:"car_category" json:"car_category,omitempty"`
-	EventType       *string             `db:"event_type" json:"event_type,omitempty"`
-	StartAt         *time.Time          `db:"start_at" json:"start_at,omitempty"`
-	EndAt           *time.Time          `db:"end_at" json:"end_at,omitempty"`
-	PickupLocation  *string             `db:"pickup_location" json:"pickup_location,omitempty"`
-	DropoffLocation *string             `db:"dropoff_location" json:"dropoff_location,omitempty"`
-	ContactPhone    *string             `db:"contact_phone" json:"contact_phone,omitempty"`
-	CreatedAt       time.Time           `db:"created_at" json:"created_at"`
-	Items           []PaymentTargetItem `json:"items,omitempty"`
+	Type             string              `db:"target_type" json:"type"`
+	ID               int64               `db:"id" json:"id"`
+	UserID           *int64              `db:"user_id" json:"user_id,omitempty"`
+	CustomerName     *string             `db:"customer_name" json:"customer_name,omitempty"`
+	Number           string              `db:"number" json:"number"`
+	Status           string              `db:"status" json:"status"`
+	PaymentStatus    string              `db:"payment_status" json:"payment_status"`
+	Total            string              `db:"total" json:"total"`
+	FulfillmentType  *string             `db:"fulfillment_type" json:"fulfillment_type,omitempty"`
+	CarName          *string             `db:"car_name" json:"car_name,omitempty"`
+	CarCategory      *string             `db:"car_category" json:"car_category,omitempty"`
+	EventType        *string             `db:"event_type" json:"event_type,omitempty"`
+	StartAt          *time.Time          `db:"start_at" json:"start_at,omitempty"`
+	EndAt            *time.Time          `db:"end_at" json:"end_at,omitempty"`
+	PickupLocation   *string             `db:"pickup_location" json:"pickup_location,omitempty"`
+	PickupLatitude   *float64            `db:"pickup_latitude" json:"pickup_latitude,omitempty"`
+	PickupLongitude  *float64            `db:"pickup_longitude" json:"pickup_longitude,omitempty"`
+	PickupReference  *string             `db:"pickup_reference" json:"pickup_reference,omitempty"`
+	DropoffLocation  *string             `db:"dropoff_location" json:"dropoff_location,omitempty"`
+	DropoffLatitude  *float64            `db:"dropoff_latitude" json:"dropoff_latitude,omitempty"`
+	DropoffLongitude *float64            `db:"dropoff_longitude" json:"dropoff_longitude,omitempty"`
+	DropoffReference *string             `db:"dropoff_reference" json:"dropoff_reference,omitempty"`
+	ContactPhone     *string             `db:"contact_phone" json:"contact_phone,omitempty"`
+	CreatedAt        time.Time           `db:"created_at" json:"created_at"`
+	Items            []PaymentTargetItem `json:"items,omitempty"`
 }
 
 type PaymentTargetItem struct {

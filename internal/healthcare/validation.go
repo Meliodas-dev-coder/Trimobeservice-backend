@@ -77,6 +77,7 @@ func validateCreateRequest(req CreateRequest) map[string]string {
 	if strings.TrimSpace(req.ContactPhone) == "" {
 		p["contact_phone"] = "is required"
 	}
+	validateLocationCoordinates(p, req.LocationLatitude, req.LocationLongitude)
 	if req.PatientGender != nil {
 		switch strings.TrimSpace(*req.PatientGender) {
 		case "", "male", "female", "other":
@@ -98,6 +99,22 @@ func validateCreateRequest(req CreateRequest) map[string]string {
 		p["end_at"] = "must be on or after the start"
 	}
 	return p
+}
+
+func validateLocationCoordinates(p map[string]string, latitude, longitude *float64) {
+	if (latitude == nil) != (longitude == nil) {
+		p["location_coordinates"] = "latitude and longitude must be provided together"
+		return
+	}
+	if latitude == nil {
+		return
+	}
+	if *latitude < -90 || *latitude > 90 {
+		p["location_latitude"] = "must be between -90 and 90"
+	}
+	if *longitude < -180 || *longitude > 180 {
+		p["location_longitude"] = "must be between -180 and 180"
+	}
 }
 
 func validateQuote(req QuoteRequest) map[string]string {

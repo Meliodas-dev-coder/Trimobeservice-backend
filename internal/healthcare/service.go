@@ -333,22 +333,25 @@ func (s *Service) create(ctx context.Context, userID *int64, customerName string
 	var requestID int64
 	err := s.repo.InTx(ctx, func(tx *sqlx.Tx) error {
 		e := &Request{
-			UserID:        userID,
-			RequestNumber: newRequestNumber(),
-			RequestType:   ServiceConsultation, // default; overridden by the chosen service
-			Status:        StatusRequested,
-			PaymentStatus: PaymentUnpaid,
-			PatientName:   strings.TrimSpace(req.PatientName),
-			PatientAge:    req.PatientAge,
-			PatientGender: blankToNil(req.PatientGender),
-			PreferredAt:   req.PreferredAt,
-			StartAt:       req.StartAt,
-			EndAt:         req.EndAt,
-			Address:       strings.TrimSpace(req.Address),
-			Symptoms:      req.Symptoms,
-			ContactPhone:  strings.TrimSpace(req.ContactPhone),
-			ContactEmail:  req.ContactEmail,
-			Note:          req.Note,
+			UserID:            userID,
+			RequestNumber:     newRequestNumber(),
+			RequestType:       ServiceConsultation, // default; overridden by the chosen service
+			Status:            StatusRequested,
+			PaymentStatus:     PaymentUnpaid,
+			PatientName:       strings.TrimSpace(req.PatientName),
+			PatientAge:        req.PatientAge,
+			PatientGender:     blankToNil(req.PatientGender),
+			PreferredAt:       req.PreferredAt,
+			StartAt:           req.StartAt,
+			EndAt:             req.EndAt,
+			Address:           strings.TrimSpace(req.Address),
+			LocationLatitude:  req.LocationLatitude,
+			LocationLongitude: req.LocationLongitude,
+			LocationReference: req.LocationReference,
+			Symptoms:          req.Symptoms,
+			ContactPhone:      strings.TrimSpace(req.ContactPhone),
+			ContactEmail:      req.ContactEmail,
+			Note:              req.Note,
 		}
 
 		if req.ServiceID != nil {

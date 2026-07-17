@@ -298,8 +298,8 @@ func (r *Repository) ListBookingsByCar(ctx context.Context, carID int64, limit i
 	out := []CarBookingSummary{}
 	err := r.db.SelectContext(ctx, &out,
 		`SELECT
-			b.id,
-			b.booking_number,
+			COALESCE(b.booking_group_id, b.id) AS id,
+			COALESCE(bg.booking_number, b.booking_number) AS booking_number,
 			COALESCE(b.customer_name, u.full_name) AS customer_name,
 			d.full_name AS driver_name,
 			b.status,
@@ -313,6 +313,7 @@ func (r *Repository) ListBookingsByCar(ctx context.Context, carID int64, limit i
 			b.paid_at,
 			b.created_at
 		 FROM bookings b
+		 LEFT JOIN booking_groups bg ON bg.booking_id = b.booking_group_id
 		 LEFT JOIN users u ON u.id = b.user_id
 		 LEFT JOIN drivers d ON d.id = b.driver_id
 		 WHERE b.car_id = ?

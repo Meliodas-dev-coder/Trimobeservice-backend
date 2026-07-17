@@ -461,6 +461,9 @@ func applyShippingAddress(o *Order, a *ShippingAddress) {
 	o.ShipRegion = a.Region
 	o.ShipCountry = &country
 	o.ShipPostalCode = a.PostalCode
+	o.ShipLatitude = a.Latitude
+	o.ShipLongitude = a.Longitude
+	o.ShipLocationRef = a.LocationReference
 }
 
 func isCancellable(status string) bool {

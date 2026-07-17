@@ -158,28 +158,73 @@ func (r *Repository) HasDriverOverlap(ctx context.Context, q sqlx.QueryerContext
 
 func (r *Repository) InsertBooking(ctx context.Context, tx *sqlx.Tx, b *Booking) (int64, error) {
 	res, err := tx.ExecContext(ctx,
-		`INSERT INTO bookings (user_id, customer_name, car_id, driver_id, booking_number, status, payment_status,
+		`INSERT INTO bookings (booking_group_id, user_id, customer_name, car_id, driver_id, booking_number, status, payment_status,
 		 start_at, end_at, days, daily_rate_snapshot, outside_antananarivo, fees, total_price,
 		 pricing_model, distance_km, cargo_per_km_rate_snapshot, cargo_minimum_rate_snapshot,
-		 car_name, car_category, pickup_location, dropoff_location, contact_phone, note)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		b.UserID, b.CustomerName, b.CarID, b.DriverID, b.BookingNumber, b.Status, b.PaymentStatus,
+		 car_name, car_category,
+		 pickup_location, pickup_latitude, pickup_longitude, pickup_reference,
+		 dropoff_location, dropoff_latitude, dropoff_longitude, dropoff_reference,
+		 contact_phone, note)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		b.BookingGroupID, b.UserID, b.CustomerName, b.CarID, b.DriverID, b.BookingNumber, b.Status, b.PaymentStatus,
 		b.StartAt, b.EndAt, b.Days, b.DailyRateSnapshot, b.OutsideAntananarivo, b.Fees, b.TotalPrice,
 		b.PricingModel, b.DistanceKm, b.CargoPerKmRate, b.CargoMinimumRate,
-		b.CarName, b.CarCategory, b.PickupLocation, b.DropoffLocation, b.ContactPhone, b.Note)
+		b.CarName, b.CarCategory,
+		b.PickupLocation, b.PickupLatitude, b.PickupLongitude, b.PickupReference,
+		b.DropoffLocation, b.DropoffLatitude, b.DropoffLongitude, b.DropoffReference,
+		b.ContactPhone, b.Note)
 	if err != nil {
 		return 0, mapTriggerErr(err)
 	}
 	return res.LastInsertId()
 }
 
+func (r *Repository) InsertBookingGroup(ctx context.Context, tx *sqlx.Tx, bookingID int64, bookingNumber, totalPrice string) error {
+	_, err := tx.ExecContext(ctx,
+		`INSERT INTO booking_groups (booking_id, booking_number, total_price) VALUES (?, ?, ?)`,
+		bookingID, bookingNumber, totalPrice)
+	return err
+}
+
+func (r *Repository) SetBookingGroup(ctx context.Context, tx *sqlx.Tx, bookingID, groupID int64) error {
+	res, err := tx.ExecContext(ctx, `UPDATE bookings SET booking_group_id = ? WHERE id = ?`, groupID, bookingID)
+	if err != nil {
+		return err
+	}
+	return notFoundIfNoRows(res, ErrBookingNotFound)
+}
+
 func (r *Repository) AssignDriverTx(ctx context.Context, tx *sqlx.Tx, id, driverID int64) error {
 	res, err := tx.ExecContext(ctx,
-		`UPDATE bookings SET driver_id = ?, status = 'driver_assigned' WHERE id = ?`, driverID, id)
+		`UPDATE bookings
+		    SET driver_id = ?,
+		        status = CASE WHEN booking_group_id IS NULL THEN 'driver_assigned' ELSE status END
+		  WHERE id = ?`, driverID, id)
 	if err != nil {
 		return mapTriggerErr(err)
 	}
-	return notFoundIfNoRows(res, ErrBookingNotFound)
+	if err := notFoundIfNoRows(res, ErrBookingNotFound); err != nil {
+		return err
+	}
+
+	var groupID *int64
+	if err := tx.GetContext(ctx, &groupID, `SELECT booking_group_id FROM bookings WHERE id = ?`, id); err != nil {
+		return err
+	}
+	if groupID == nil {
+		return nil
+	}
+	var unassigned int
+	if err := tx.GetContext(ctx, &unassigned,
+		`SELECT COUNT(*) FROM bookings WHERE booking_group_id = ? AND driver_id IS NULL`, *groupID); err != nil {
+		return err
+	}
+	if unassigned == 0 {
+		_, err = tx.ExecContext(ctx,
+			`UPDATE bookings SET status = 'driver_assigned' WHERE booking_group_id = ?`, *groupID)
+		return mapTriggerErr(err)
+	}
+	return nil
 }
 
 // CarOverlaps is the non-transactional (read-only) availability check.
@@ -205,7 +250,12 @@ func (r *Repository) ListBookedRanges(ctx context.Context, carID int64, from tim
 }
 
 func (r *Repository) SetStatus(ctx context.Context, id int64, status string) error {
-	res, err := r.db.ExecContext(ctx, `UPDATE bookings SET status = ? WHERE id = ?`, status, id)
+	res, err := r.db.ExecContext(ctx,
+		`UPDATE bookings
+		    SET status = ?
+		  WHERE id = ?
+		     OR booking_group_id = (SELECT group_id FROM (SELECT booking_group_id AS group_id FROM bookings WHERE id = ?) source)`,
+		status, id, id)
 	if err != nil {
 		return mapTriggerErr(err)
 	}
@@ -214,7 +264,11 @@ func (r *Repository) SetStatus(ctx context.Context, id int64, status string) err
 
 func (r *Repository) MarkPaid(ctx context.Context, id int64) error {
 	res, err := r.db.ExecContext(ctx,
-		`UPDATE bookings SET payment_status = 'paid', paid_at = NOW() WHERE id = ?`, id)
+		`UPDATE bookings
+		    SET payment_status = 'paid', paid_at = NOW()
+		  WHERE id = ?
+		     OR booking_group_id = (SELECT group_id FROM (SELECT booking_group_id AS group_id FROM bookings WHERE id = ?) source)`,
+		id, id)
 	if err != nil {
 		return err
 	}
@@ -226,9 +280,13 @@ func (r *Repository) MarkPaid(ctx context.Context, id int64) error {
 // eligibility check and the delete.
 func (r *Repository) DeleteBooking(ctx context.Context, id int64) error {
 	return r.InTx(ctx, func(tx *sqlx.Tx) error {
-		var paymentStatus string
-		err := tx.GetContext(ctx, &paymentStatus,
-			`SELECT payment_status FROM bookings WHERE id = ? FOR UPDATE`, id)
+		var target struct {
+			ID            int64  `db:"id"`
+			GroupID       *int64 `db:"booking_group_id"`
+			PaymentStatus string `db:"payment_status"`
+		}
+		err := tx.GetContext(ctx, &target,
+			`SELECT id, booking_group_id, payment_status FROM bookings WHERE id = ? FOR UPDATE`, id)
 		if errors.Is(err, sql.ErrNoRows) {
 			return ErrBookingNotFound
 		}
@@ -241,11 +299,37 @@ func (r *Repository) DeleteBooking(ctx context.Context, id int64) error {
 			`SELECT COUNT(*) FROM payments WHERE payable_type = 'booking' AND payable_id = ?`, id); err != nil {
 			return err
 		}
-		if paymentStatus != PaymentUnpaid || paymentCount > 0 {
+		rootID := target.ID
+		if target.GroupID != nil {
+			rootID = *target.GroupID
+		}
+		if rootID != id {
+			if err := tx.GetContext(ctx, &target.PaymentStatus,
+				`SELECT payment_status FROM bookings WHERE id = ? FOR UPDATE`, rootID); err != nil {
+				return err
+			}
+			if err := tx.GetContext(ctx, &paymentCount,
+				`SELECT COUNT(*) FROM payments WHERE payable_type = 'booking' AND payable_id = ?`, rootID); err != nil {
+				return err
+			}
+		}
+		if target.PaymentStatus != PaymentUnpaid || paymentCount > 0 {
 			return ErrBookingHasPayments
 		}
 
-		res, err := tx.ExecContext(ctx, `DELETE FROM bookings WHERE id = ?`, id)
+		if target.GroupID != nil {
+			if _, err := tx.ExecContext(ctx, `DELETE FROM bookings WHERE booking_group_id = ? AND id <> ?`, rootID, rootID); err != nil {
+				return err
+			}
+			if _, err := tx.ExecContext(ctx, `UPDATE bookings SET booking_group_id = NULL WHERE id = ?`, rootID); err != nil {
+				return err
+			}
+			if _, err := tx.ExecContext(ctx, `DELETE FROM booking_groups WHERE booking_id = ?`, rootID); err != nil {
+				return err
+			}
+		}
+
+		res, err := tx.ExecContext(ctx, `DELETE FROM bookings WHERE id = ?`, rootID)
 		if err != nil {
 			return err
 		}
@@ -255,13 +339,26 @@ func (r *Repository) DeleteBooking(ctx context.Context, id int64) error {
 
 // --- booking reads ---
 
-const bookingCols = `id, user_id,
+const bookingCols = `id, booking_group_id, user_id,
 	COALESCE(customer_name, (SELECT full_name FROM users u WHERE u.id = bookings.user_id)) AS customer_name,
-	car_id, driver_id, booking_number, status, payment_status,
-	start_at, end_at, days, daily_rate_snapshot, outside_antananarivo, fees, total_price,
+	car_id, driver_id,
+	COALESCE((SELECT bg.booking_number FROM booking_groups bg WHERE bg.booking_id = bookings.booking_group_id), booking_number) AS booking_number,
+	status, payment_status,
+	start_at, end_at, days, daily_rate_snapshot, outside_antananarivo, fees,
+	COALESCE((SELECT bg.total_price FROM booking_groups bg WHERE bg.booking_id = bookings.booking_group_id), total_price) AS total_price,
 	pricing_model, distance_km, cargo_per_km_rate_snapshot, cargo_minimum_rate_snapshot,
-	car_name, car_category, pickup_location, dropoff_location, contact_phone, note,
-	paid_at, created_at, updated_at`
+	CASE WHEN booking_group_id IS NOT NULL
+		THEN CONCAT((SELECT COUNT(*) FROM bookings bi WHERE bi.booking_group_id = bookings.booking_group_id), ' cars')
+		ELSE car_name END AS car_name,
+	CASE WHEN booking_group_id IS NOT NULL THEN NULL ELSE car_category END AS car_category,
+	pickup_location, pickup_latitude, pickup_longitude, pickup_reference,
+	dropoff_location, dropoff_latitude, dropoff_longitude, dropoff_reference,
+	contact_phone, note,
+	paid_at, created_at, updated_at,
+	(booking_group_id IS NOT NULL) AS is_multi_car,
+	CASE WHEN booking_group_id IS NOT NULL
+		THEN (SELECT COUNT(*) FROM bookings bi WHERE bi.booking_group_id = bookings.booking_group_id)
+		ELSE 1 END AS car_count`
 
 func (r *Repository) GetByID(ctx context.Context, id int64) (*Booking, error) {
 	var b Booking
@@ -289,7 +386,7 @@ func (r *Repository) GetForUser(ctx context.Context, userID, id int64) (*Booking
 }
 
 func (r *Repository) List(ctx context.Context, f BookingFilter) ([]Booking, int, error) {
-	var where []string
+	where := []string{"(booking_group_id IS NULL OR id = booking_group_id)"}
 	var args []any
 	if f.UserID != nil {
 		where = append(where, "user_id = ?")
@@ -304,7 +401,8 @@ func (r *Repository) List(ctx context.Context, f BookingFilter) ([]Booking, int,
 		args = append(args, f.PaymentStatus)
 	}
 	if f.CarID != nil {
-		where = append(where, "car_id = ?")
+		where = append(where, "(car_id = ? OR EXISTS (SELECT 1 FROM bookings car_item WHERE car_item.booking_group_id = bookings.id AND car_item.car_id = ?))")
+		args = append(args, *f.CarID)
 		args = append(args, *f.CarID)
 	}
 	clause := ""
@@ -325,6 +423,17 @@ func (r *Repository) List(ctx context.Context, f BookingFilter) ([]Booking, int,
 		return nil, 0, err
 	}
 	return out, total, nil
+}
+
+func (r *Repository) ListBookingCars(ctx context.Context, groupID int64) ([]BookingCarDetail, error) {
+	out := []BookingCarDetail{}
+	err := r.db.SelectContext(ctx, &out,
+		`SELECT id, car_id, driver_id, status, daily_rate_snapshot, fees, total_price,
+		        pricing_model, distance_km, car_name, car_category
+		   FROM bookings
+		  WHERE booking_group_id = ?
+		  ORDER BY id`, groupID)
+	return out, err
 }
 
 // --- helpers ---

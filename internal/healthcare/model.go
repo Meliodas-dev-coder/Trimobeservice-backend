@@ -167,33 +167,36 @@ type ServiceFilter struct {
 // --- transaction: healthcare requests ---
 
 type Request struct {
-	ID            int64      `db:"id" json:"id"`
-	UserID        *int64     `db:"user_id" json:"user_id,omitempty"`
-	CustomerName  *string    `db:"customer_name" json:"customer_name,omitempty"`
-	RequestNumber string     `db:"request_number" json:"request_number"`
-	RequestType   string     `db:"request_type" json:"request_type"`
-	ServiceID     *int64     `db:"service_id" json:"service_id,omitempty"`
-	ServiceName   *string    `db:"service_name" json:"service_name,omitempty"`
-	CategoryName  *string    `db:"category_name" json:"category_name,omitempty"`
-	PriceSnapshot *string    `db:"price_snapshot" json:"price_snapshot,omitempty"`
-	PatientName   string     `db:"patient_name" json:"patient_name"`
-	PatientAge    *int       `db:"patient_age" json:"patient_age,omitempty"`
-	PatientGender *string    `db:"patient_gender" json:"patient_gender,omitempty"`
-	PreferredAt   *time.Time `db:"preferred_at" json:"preferred_at,omitempty"`
-	StartAt       *time.Time `db:"start_at" json:"start_at,omitempty"`
-	EndAt         *time.Time `db:"end_at" json:"end_at,omitempty"`
-	Address       string     `db:"address" json:"address"`
-	Symptoms      *string    `db:"symptoms" json:"symptoms,omitempty"`
-	Status        string     `db:"status" json:"status"`
-	PaymentStatus string     `db:"payment_status" json:"payment_status"`
-	PaidAt        *time.Time `db:"paid_at" json:"paid_at,omitempty"`
-	QuotedPrice   *string    `db:"quoted_price" json:"quoted_price,omitempty"`
-	ContactPhone  string     `db:"contact_phone" json:"contact_phone"`
-	ContactEmail  *string    `db:"contact_email" json:"contact_email,omitempty"`
-	Note          *string    `db:"note" json:"note,omitempty"`
-	AdminNote     *string    `db:"admin_note" json:"admin_note,omitempty"`
-	CreatedAt     time.Time  `db:"created_at" json:"created_at"`
-	UpdatedAt     time.Time  `db:"updated_at" json:"updated_at"`
+	ID                int64      `db:"id" json:"id"`
+	UserID            *int64     `db:"user_id" json:"user_id,omitempty"`
+	CustomerName      *string    `db:"customer_name" json:"customer_name,omitempty"`
+	RequestNumber     string     `db:"request_number" json:"request_number"`
+	RequestType       string     `db:"request_type" json:"request_type"`
+	ServiceID         *int64     `db:"service_id" json:"service_id,omitempty"`
+	ServiceName       *string    `db:"service_name" json:"service_name,omitempty"`
+	CategoryName      *string    `db:"category_name" json:"category_name,omitempty"`
+	PriceSnapshot     *string    `db:"price_snapshot" json:"price_snapshot,omitempty"`
+	PatientName       string     `db:"patient_name" json:"patient_name"`
+	PatientAge        *int       `db:"patient_age" json:"patient_age,omitempty"`
+	PatientGender     *string    `db:"patient_gender" json:"patient_gender,omitempty"`
+	PreferredAt       *time.Time `db:"preferred_at" json:"preferred_at,omitempty"`
+	StartAt           *time.Time `db:"start_at" json:"start_at,omitempty"`
+	EndAt             *time.Time `db:"end_at" json:"end_at,omitempty"`
+	Address           string     `db:"address" json:"address"`
+	LocationLatitude  *float64   `db:"location_latitude" json:"location_latitude,omitempty"`
+	LocationLongitude *float64   `db:"location_longitude" json:"location_longitude,omitempty"`
+	LocationReference *string    `db:"location_reference" json:"location_reference,omitempty"`
+	Symptoms          *string    `db:"symptoms" json:"symptoms,omitempty"`
+	Status            string     `db:"status" json:"status"`
+	PaymentStatus     string     `db:"payment_status" json:"payment_status"`
+	PaidAt            *time.Time `db:"paid_at" json:"paid_at,omitempty"`
+	QuotedPrice       *string    `db:"quoted_price" json:"quoted_price,omitempty"`
+	ContactPhone      string     `db:"contact_phone" json:"contact_phone"`
+	ContactEmail      *string    `db:"contact_email" json:"contact_email,omitempty"`
+	Note              *string    `db:"note" json:"note,omitempty"`
+	AdminNote         *string    `db:"admin_note" json:"admin_note,omitempty"`
+	CreatedAt         time.Time  `db:"created_at" json:"created_at"`
+	UpdatedAt         time.Time  `db:"updated_at" json:"updated_at"`
 
 	// List-only aggregate.
 	AssignmentCount int `db:"assignment_count" json:"assignment_count"`
@@ -288,18 +291,21 @@ type ServiceRequest struct {
 // CreateRequest is the client payload for a new healthcare request. request_type
 // is derived from the chosen service (or defaults to consultation when none).
 type CreateRequest struct {
-	ServiceID     *int64     `json:"service_id"` // required for packages; optional for consultations
-	PatientName   string     `json:"patient_name"`
-	PatientAge    *int       `json:"patient_age"`
-	PatientGender *string    `json:"patient_gender"`
-	PreferredAt   *time.Time `json:"preferred_at"` // consultation visit time (RFC3339)
-	StartAt       *time.Time `json:"start_at"`     // package window start (RFC3339)
-	EndAt         *time.Time `json:"end_at"`       // package window end (RFC3339); derived if absent
-	Address       string     `json:"address"`
-	Symptoms      *string    `json:"symptoms"`
-	ContactPhone  string     `json:"contact_phone"`
-	ContactEmail  *string    `json:"contact_email"`
-	Note          *string    `json:"note"`
+	ServiceID         *int64     `json:"service_id"` // required for packages; optional for consultations
+	PatientName       string     `json:"patient_name"`
+	PatientAge        *int       `json:"patient_age"`
+	PatientGender     *string    `json:"patient_gender"`
+	PreferredAt       *time.Time `json:"preferred_at"` // consultation visit time (RFC3339)
+	StartAt           *time.Time `json:"start_at"`     // package window start (RFC3339)
+	EndAt             *time.Time `json:"end_at"`       // package window end (RFC3339); derived if absent
+	Address           string     `json:"address"`
+	LocationLatitude  *float64   `json:"location_latitude"`
+	LocationLongitude *float64   `json:"location_longitude"`
+	LocationReference *string    `json:"location_reference"`
+	Symptoms          *string    `json:"symptoms"`
+	ContactPhone      string     `json:"contact_phone"`
+	ContactEmail      *string    `json:"contact_email"`
+	Note              *string    `json:"note"`
 }
 
 // AdminCreateRequest lets an admin log a phone/walk-in request.

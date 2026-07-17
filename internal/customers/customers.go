@@ -37,7 +37,8 @@ type Filter struct {
 
 const cols = `u.id, u.full_name, u.email, u.phone, u.role, u.is_active, u.email_verified_at, u.created_at,
 	(SELECT COUNT(*) FROM orders o WHERE o.user_id = u.id) AS order_count,
-	(SELECT COUNT(*) FROM bookings b WHERE b.user_id = u.id) AS booking_count`
+	(SELECT COUNT(*) FROM bookings b
+	  WHERE b.user_id = u.id AND (b.booking_group_id IS NULL OR b.id = b.booking_group_id)) AS booking_count`
 
 // Repository reads customer accounts.
 type Repository struct {

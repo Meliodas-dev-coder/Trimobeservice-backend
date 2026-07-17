@@ -58,6 +58,7 @@ func validateCreateRequest(req CreateEventRequest) map[string]string {
 	if strings.TrimSpace(req.ContactPhone) == "" {
 		p["contact_phone"] = "is required"
 	}
+	validateEventCoordinates(p, req.LocationLatitude, req.LocationLongitude)
 	if len(req.Services) == 0 && len(req.Artists) == 0 {
 		p["services"] = "select at least one service or artist"
 	}
@@ -67,6 +68,22 @@ func validateCreateRequest(req CreateEventRequest) map[string]string {
 		}
 	}
 	return p
+}
+
+func validateEventCoordinates(p map[string]string, latitude, longitude *float64) {
+	if (latitude == nil) != (longitude == nil) {
+		p["location_coordinates"] = "latitude and longitude must be provided together"
+		return
+	}
+	if latitude == nil {
+		return
+	}
+	if *latitude < -90 || *latitude > 90 {
+		p["location_latitude"] = "must be between -90 and 90"
+	}
+	if *longitude < -180 || *longitude > 180 {
+		p["location_longitude"] = "must be between -180 and 180"
+	}
 }
 
 func validateArtist(req ArtistRequest) map[string]string {
@@ -84,6 +101,22 @@ func validateArtist(req ArtistRequest) map[string]string {
 
 func validateQuote(req QuoteRequest) map[string]string {
 	p := map[string]string{}
+	// Itemized quote: validate each line price; the total is computed server-side.
+	if req.itemized() {
+		for _, ln := range req.Services {
+			if !priceRe.MatchString(strings.TrimSpace(ln.Price)) {
+				p["services"] = "each service price must be a decimal amount, e.g. 800000.00"
+				break
+			}
+		}
+		for _, ln := range req.Artists {
+			if !priceRe.MatchString(strings.TrimSpace(ln.Price)) {
+				p["artists"] = "each artist fee must be a decimal amount, e.g. 800000.00"
+				break
+			}
+		}
+		return p
+	}
 	if !priceRe.MatchString(strings.TrimSpace(req.QuotedPrice)) {
 		p["quoted_price"] = "must be a decimal amount, e.g. 3500000.00"
 	}
