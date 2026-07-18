@@ -79,18 +79,18 @@ func run(email, password, name string) error {
 				return herr
 			}
 			if _, uerr := db.ExecContext(ctx,
-				`UPDATE users SET role = 'admin', is_active = TRUE, password_hash = ? WHERE id = ?`,
+				`UPDATE users SET role = 'admin', is_super_admin = TRUE, is_active = TRUE, password_hash = ? WHERE id = ?`,
 				hash, existingID); uerr != nil {
 				return uerr
 			}
-			fmt.Printf("Promoted %q to admin and reset its password (id=%d)\n", email, existingID)
+			fmt.Printf("Promoted %q to super-admin and reset its password (id=%d)\n", email, existingID)
 			return nil
 		}
 		if _, uerr := db.ExecContext(ctx,
-			`UPDATE users SET role = 'admin', is_active = TRUE WHERE id = ?`, existingID); uerr != nil {
+			`UPDATE users SET role = 'admin', is_super_admin = TRUE, is_active = TRUE WHERE id = ?`, existingID); uerr != nil {
 			return uerr
 		}
-		fmt.Printf("Promoted existing user %q to admin (id=%d)\n", email, existingID)
+		fmt.Printf("Promoted existing user %q to super-admin (id=%d)\n", email, existingID)
 		return nil
 
 	case errors.Is(err, sql.ErrNoRows):
@@ -106,14 +106,14 @@ func run(email, password, name string) error {
 			return herr
 		}
 		res, ierr := db.ExecContext(ctx,
-			`INSERT INTO users (role, email, password_hash, full_name, is_active)
-			 VALUES ('admin', ?, ?, ?, TRUE)`,
+			`INSERT INTO users (role, is_super_admin, email, password_hash, full_name, is_active)
+			 VALUES ('admin', TRUE, ?, ?, ?, TRUE)`,
 			email, hash, fullName)
 		if ierr != nil {
 			return ierr
 		}
 		id, _ := res.LastInsertId()
-		fmt.Printf("Created admin %q (id=%d)\n", email, id)
+		fmt.Printf("Created super-admin %q (id=%d)\n", email, id)
 		return nil
 
 	default:

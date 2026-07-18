@@ -21,6 +21,12 @@ func hashPassword(plain string) (string, error) {
 	return string(b), nil
 }
 
+// HashPassword is the exported bcrypt hasher, reused by other admin modules
+// (e.g. adminusers) that create user accounts so hashing stays consistent.
+func HashPassword(plain string) (string, error) {
+	return hashPassword(plain)
+}
+
 func checkPassword(hash, plain string) bool {
 	return bcrypt.CompareHashAndPassword([]byte(hash), []byte(plain)) == nil
 }

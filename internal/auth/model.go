@@ -16,6 +16,7 @@ const (
 type User struct {
 	ID              int64      `db:"id"`
 	Role            Role       `db:"role"`
+	IsSuperAdmin    bool       `db:"is_super_admin"`
 	Email           string     `db:"email"`
 	PasswordHash    string     `db:"password_hash"`
 	FullName        string     `db:"full_name"`
@@ -61,6 +62,11 @@ type RefreshRequest struct {
 	RefreshToken string `json:"refresh_token"`
 }
 
+type ChangePasswordRequest struct {
+	CurrentPassword string `json:"current_password"`
+	NewPassword     string `json:"new_password"`
+}
+
 type AddressRequest struct {
 	Label         *string `json:"label"`
 	RecipientName string  `json:"recipient_name"`
@@ -84,19 +90,25 @@ type TokenPair struct {
 }
 
 type UserResponse struct {
-	ID       int64  `json:"id"`
-	Role     Role   `json:"role"`
-	Email    string `json:"email"`
-	FullName string `json:"full_name"`
-	Phone    string `json:"phone,omitempty"`
+	ID           int64    `json:"id"`
+	Role         Role     `json:"role"`
+	IsSuperAdmin bool     `json:"is_super_admin"`
+	Permissions  []string `json:"permissions"`
+	Email        string   `json:"email"`
+	FullName     string   `json:"full_name"`
+	Phone        string   `json:"phone,omitempty"`
 }
 
+// toUserResponse maps the base identity fields. Permissions are filled in
+// separately by the service (they require a DB read of the assigned role).
 func toUserResponse(u *User) UserResponse {
 	resp := UserResponse{
-		ID:       u.ID,
-		Role:     u.Role,
-		Email:    u.Email,
-		FullName: u.FullName,
+		ID:           u.ID,
+		Role:         u.Role,
+		IsSuperAdmin: u.IsSuperAdmin,
+		Permissions:  []string{},
+		Email:        u.Email,
+		FullName:     u.FullName,
 	}
 	if u.Phone != nil {
 		resp.Phone = *u.Phone

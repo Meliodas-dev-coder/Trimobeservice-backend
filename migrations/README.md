@@ -33,6 +33,9 @@ MySQL 8.0+ schema for the Trimo multiservice platform, written for
 | 000023 | `category_outside_antananarivo_default` | category default outside-region rates |
 | 000024 | `booking_groups` | one booking reference/payment total with multiple per-car booking items |
 | 000025 | `invoicing` | `org_settings` (seller identity), `invoices`, `invoice_lines`, `invoice_sequences` (per-kind/year gapless numbering) |
+| 000026 | `customer_location_pins` | lat/lng coordinates + meeting reference on delivery/pickup/event/home-care records |
+| 000027 | `event_line_pricing` | per-line pricing snapshots on event requests |
+| 000028 | `admin_roles_and_permissions` | `admin_roles` (screen-permission bundles) + `users.is_super_admin` / `users.admin_role_id`; backfills existing admins as super-admins |
 
 They must apply in order — later migrations reference earlier tables via
 foreign keys.
@@ -90,6 +93,12 @@ foreign keys.
   gapless per-year `invoice_sequences` counter. Tax is settings-driven
   (`org_settings.default_tax_rate`, 0 until TVA-registered). Amount paid /
   balance due are derived live from the `payments` ledger, never stored.
+- **Admin roles & screen permissions.** Beyond the coarse `users.role`
+  (`customer`/`admin`), `admin_roles` bundle a set of business-section keys (JSON,
+  validated app-side against `internal/authz`) that an admin employee is assigned
+  via `users.admin_role_id`. `users.is_super_admin` (the seeded owner) bypasses
+  every check. Every admin API is gated by `RequirePermission` for its section, so
+  a restricted employee is rejected server-side, not just hidden in the UI.
 - **Healthcare (home care).** A doctor/nurse `practitioners` roster (like
   `drivers`) is assigned to `healthcare_requests`. A request is either a
   quote-priced **consultation** or a fixed-price **package** whose staff makeup

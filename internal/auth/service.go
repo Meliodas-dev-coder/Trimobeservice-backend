@@ -14,6 +14,8 @@ var (
 	ErrInvalidCredentials = errors.New("invalid email or password")
 	ErrInactiveUser       = errors.New("account is inactive")
 	ErrInvalidRefresh     = errors.New("invalid or expired refresh token")
+	ErrWrongPassword      = errors.New("current password is incorrect")
+	ErrSamePassword       = errors.New("new password must be different from the current one")
 )
 
 // sessionMeta captures per-request context stored alongside a refresh token.
@@ -140,6 +142,42 @@ func (s *Service) Logout(ctx context.Context, refreshToken string) error {
 
 func (s *Service) Me(ctx context.Context, userID int64) (*User, error) {
 	return s.repo.GetByID(ctx, userID)
+}
+
+// ChangePassword verifies the caller's current password before setting a new
+// one. It does not touch existing sessions — the current access/refresh tokens
+// stay valid, so the user is not logged out of their own session.
+func (s *Service) ChangePassword(ctx context.Context, userID int64, req ChangePasswordRequest) error {
+	u, err := s.repo.GetByID(ctx, userID)
+	if err != nil {
+		return err
+	}
+	if !checkPassword(u.PasswordHash, req.CurrentPassword) {
+		return ErrWrongPassword
+	}
+	if checkPassword(u.PasswordHash, req.NewPassword) {
+		return ErrSamePassword
+	}
+	hash, err := hashPassword(req.NewPassword)
+	if err != nil {
+		return err
+	}
+	return s.repo.UpdatePassword(ctx, userID, hash)
+}
+
+// UserResponse builds the API user object, enriching it with the effective
+// admin section permissions from the assigned role (empty for customers and
+// unassigned admins). Super-admins carry is_super_admin=true and bypass checks.
+func (s *Service) UserResponse(ctx context.Context, u *User) (UserResponse, error) {
+	resp := toUserResponse(u)
+	perms, err := s.repo.LoadPermissions(ctx, u.ID)
+	if err != nil {
+		return resp, err
+	}
+	if len(perms) > 0 {
+		resp.Permissions = perms
+	}
+	return resp, nil
 }
 
 func (s *Service) ListAddresses(ctx context.Context, userID int64) ([]Address, error) {

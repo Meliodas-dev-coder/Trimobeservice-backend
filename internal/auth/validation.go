@@ -25,6 +25,21 @@ func validateRegister(req RegisterRequest) map[string]string {
 	return problems
 }
 
+func validateChangePassword(req ChangePasswordRequest) map[string]string {
+	problems := map[string]string{}
+	if req.CurrentPassword == "" {
+		problems["current_password"] = "is required"
+	}
+	if utf8.RuneCountInString(req.NewPassword) < 8 {
+		problems["new_password"] = "must be at least 8 characters"
+	}
+	// bcrypt silently truncates past 72 bytes — reject rather than weaken.
+	if len(req.NewPassword) > 72 {
+		problems["new_password"] = "must be at most 72 bytes"
+	}
+	return problems
+}
+
 func validateLogin(req LoginRequest) map[string]string {
 	problems := map[string]string{}
 	if strings.TrimSpace(req.Email) == "" {

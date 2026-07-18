@@ -39,7 +39,12 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, http.StatusInternalServerError, "could not complete registration")
 		return
 	}
-	httpx.JSON(w, http.StatusCreated, httpx.Envelope{"user": toUserResponse(u), "tokens": pair})
+	user, err := h.svc.UserResponse(r.Context(), u)
+	if err != nil {
+		httpx.Error(w, http.StatusInternalServerError, "could not complete registration")
+		return
+	}
+	httpx.JSON(w, http.StatusCreated, httpx.Envelope{"user": user, "tokens": pair})
 }
 
 func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
@@ -65,7 +70,12 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	httpx.JSON(w, http.StatusOK, httpx.Envelope{"user": toUserResponse(u), "tokens": pair})
+	user, err := h.svc.UserResponse(r.Context(), u)
+	if err != nil {
+		httpx.Error(w, http.StatusInternalServerError, "could not complete login")
+		return
+	}
+	httpx.JSON(w, http.StatusOK, httpx.Envelope{"user": user, "tokens": pair})
 }
 
 func (h *Handler) Refresh(w http.ResponseWriter, r *http.Request) {
@@ -114,7 +124,40 @@ func (h *Handler) Me(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, http.StatusInternalServerError, "could not load profile")
 		return
 	}
-	httpx.JSON(w, http.StatusOK, httpx.Envelope{"user": toUserResponse(u)})
+	user, err := h.svc.UserResponse(r.Context(), u)
+	if err != nil {
+		httpx.Error(w, http.StatusInternalServerError, "could not load profile")
+		return
+	}
+	httpx.JSON(w, http.StatusOK, httpx.Envelope{"user": user})
+}
+
+func (h *Handler) ChangePassword(w http.ResponseWriter, r *http.Request) {
+	userID, ok := userIDFromRequest(w, r)
+	if !ok {
+		return
+	}
+	var req ChangePasswordRequest
+	if err := httpx.DecodeJSON(w, r, &req); err != nil {
+		httpx.Error(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if problems := validateChangePassword(req); len(problems) > 0 {
+		httpx.ValidationError(w, problems)
+		return
+	}
+	if err := h.svc.ChangePassword(r.Context(), userID, req); err != nil {
+		switch {
+		case errors.Is(err, ErrWrongPassword):
+			httpx.Error(w, http.StatusForbidden, err.Error())
+		case errors.Is(err, ErrSamePassword):
+			httpx.ValidationError(w, map[string]string{"new_password": "must be different from the current password"})
+		default:
+			httpx.Error(w, http.StatusInternalServerError, "could not change password")
+		}
+		return
+	}
+	httpx.JSON(w, http.StatusOK, httpx.Envelope{"message": "password changed"})
 }
 
 func (h *Handler) ListAddresses(w http.ResponseWriter, r *http.Request) {

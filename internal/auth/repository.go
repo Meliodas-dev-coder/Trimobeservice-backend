@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"time"
 
@@ -64,7 +65,7 @@ func (r *Repository) EmailExists(ctx context.Context, email string) (bool, error
 func (r *Repository) GetByEmail(ctx context.Context, email string) (*User, error) {
 	var u User
 	err := r.db.GetContext(ctx, &u,
-		`SELECT id, role, email, password_hash, full_name, phone,
+		`SELECT id, role, is_super_admin, email, password_hash, full_name, phone,
 		        email_verified_at, is_active, created_at, updated_at
 		 FROM users WHERE email = ?`, email)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -79,7 +80,7 @@ func (r *Repository) GetByEmail(ctx context.Context, email string) (*User, error
 func (r *Repository) GetByID(ctx context.Context, id int64) (*User, error) {
 	var u User
 	err := r.db.GetContext(ctx, &u,
-		`SELECT id, role, email, password_hash, full_name, phone,
+		`SELECT id, role, is_super_admin, email, password_hash, full_name, phone,
 		        email_verified_at, is_active, created_at, updated_at
 		 FROM users WHERE id = ?`, id)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -89,6 +90,37 @@ func (r *Repository) GetByID(ctx context.Context, id int64) (*User, error) {
 		return nil, err
 	}
 	return &u, nil
+}
+
+// UpdatePassword sets a new bcrypt hash for the user.
+func (r *Repository) UpdatePassword(ctx context.Context, userID int64, hash string) error {
+	_, err := r.db.ExecContext(ctx, `UPDATE users SET password_hash = ? WHERE id = ?`, hash, userID)
+	return err
+}
+
+// LoadPermissions returns the section keys granted by the user's assigned admin
+// role (an empty slice when they have none). Restricted admins are gated by
+// these on both the API and the SPA. Customers always resolve to an empty set.
+func (r *Repository) LoadPermissions(ctx context.Context, userID int64) ([]string, error) {
+	var raw []byte
+	err := r.db.GetContext(ctx, &raw,
+		`SELECT COALESCE(ar.permissions, JSON_ARRAY())
+		   FROM users u
+		   LEFT JOIN admin_roles ar ON ar.id = u.admin_role_id
+		  WHERE u.id = ?`, userID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return []string{}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	perms := []string{}
+	if len(raw) > 0 {
+		if err := json.Unmarshal(raw, &perms); err != nil {
+			return nil, err
+		}
+	}
+	return perms, nil
 }
 
 const addressCols = `id, user_id, label, recipient_name, phone, line1, line2, city, region, country, postal_code, is_default, created_at, updated_at`

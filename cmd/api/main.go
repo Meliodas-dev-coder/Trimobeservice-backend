@@ -14,8 +14,10 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/joho/godotenv"
 
+	"github.com/trimo/backend/internal/adminusers"
 	"github.com/trimo/backend/internal/audit"
 	"github.com/trimo/backend/internal/auth"
+	"github.com/trimo/backend/internal/authz"
 	"github.com/trimo/backend/internal/bookings"
 	"github.com/trimo/backend/internal/catalog"
 	"github.com/trimo/backend/internal/config"
@@ -101,6 +103,10 @@ func run() error {
 	invoicingHandler := invoicing.NewHandler(invoicing.NewService(invoicing.NewRepository(db)))
 	customersHandler := customers.NewHandler(customers.NewService(customers.NewRepository(db)))
 	dashboardHandler := dashboard.NewHandler(dashboard.NewService(dashboard.NewRepository(db)))
+	// adminUsersSvc manages admin employees + roles AND resolves a user's
+	// effective permissions for the authz enforcement middleware below.
+	adminUsersSvc := adminusers.NewService(adminusers.NewRepository(db))
+	adminUsersHandler := adminusers.NewHandler(adminUsersSvc)
 
 	// Audit trail: one service feeds both the read endpoint and the middleware
 	// that records every admin write. `auditedAdmin` = RequireAdmin + recording,
@@ -109,6 +115,22 @@ func run() error {
 	auditHandler := audit.NewHandler(auditSvc)
 	auditedAdmin := func(next http.Handler) http.Handler {
 		return authMW.RequireAdmin(audit.NewMiddleware(auditSvc).Record(next))
+	}
+
+	// Screen-level access control. Beyond RequireAdmin, each admin module also
+	// requires the section permission(s) for the area it serves; super-admins
+	// bypass. permGate is the read-only variant; auditedPerm additionally records
+	// the write. adminUsersSvc is the authz.PermissionLoader (one query/request).
+	permGate := func(keys ...string) func(http.Handler) http.Handler {
+		return func(next http.Handler) http.Handler {
+			return authMW.RequireAdmin(authz.RequirePermission(adminUsersSvc, keys...)(next))
+		}
+	}
+	auditedPerm := func(keys ...string) func(http.Handler) http.Handler {
+		record := audit.NewMiddleware(auditSvc).Record
+		return func(next http.Handler) http.Handler {
+			return authMW.RequireAdmin(authz.RequirePermission(adminUsersSvc, keys...)(record(next)))
+		}
 	}
 
 	// Realtime hub: streams newly created orders/bookings/requests to connected
@@ -129,17 +151,19 @@ func run() error {
 		// Mutating admin modules are wrapped with `auditedAdmin` so their writes
 		// are recorded. Read-only modules (customers, dashboard, realtime SSE)
 		// and the audit reader itself stay on plain RequireAdmin.
-		catalog.RegisterRoutes(r, catalogHandler, auditedAdmin)
-		mobility.RegisterRoutes(r, mobilityHandler, auditedAdmin)
-		orders.RegisterRoutes(r, ordersHandler, authMW.RequireAuth, auditedAdmin)
-		bookings.RegisterRoutes(r, bookingsHandler, authMW.RequireAuth, auditedAdmin)
-		events.RegisterRoutes(r, eventsHandler, authMW.RequireAuth, auditedAdmin)
-		healthcare.RegisterRoutes(r, healthcareHandler, authMW.RequireAuth, auditedAdmin)
-		payments.RegisterRoutes(r, paymentsHandler, auditedAdmin)
-		invoicing.RegisterRoutes(r, invoicingHandler, auditedAdmin)
-		customers.RegisterRoutes(r, customersHandler, authMW.RequireAdmin)
-		dashboard.RegisterRoutes(r, dashboardHandler, authMW.RequireAdmin)
-		audit.RegisterRoutes(r, auditHandler, authMW.RequireAdmin)
+		catalog.RegisterRoutes(r, catalogHandler, auditedPerm(authz.PermTech, authz.PermFashion, authz.PermCoffee))
+		mobility.RegisterRoutes(r, mobilityHandler, auditedPerm(authz.PermMobility))
+		orders.RegisterRoutes(r, ordersHandler, authMW.RequireAuth, auditedPerm(authz.PermOrders))
+		bookings.RegisterRoutes(r, bookingsHandler, authMW.RequireAuth, auditedPerm(authz.PermMobility))
+		events.RegisterRoutes(r, eventsHandler, authMW.RequireAuth, auditedPerm(authz.PermEvents))
+		healthcare.RegisterRoutes(r, healthcareHandler, authMW.RequireAuth, auditedPerm(authz.PermHealthcare))
+		payments.RegisterRoutes(r, paymentsHandler, auditedPerm(authz.PermPayments))
+		invoicing.RegisterRoutes(r, invoicingHandler, auditedPerm(authz.PermInvoices))
+		customers.RegisterRoutes(r, customersHandler, permGate(authz.PermCustomers))
+		dashboard.RegisterRoutes(r, dashboardHandler, permGate(authz.PermDashboard))
+		audit.RegisterRoutes(r, auditHandler, permGate(authz.PermAuditLogs))
+		adminusers.RegisterRoutes(r, adminUsersHandler, auditedPerm(authz.PermUserManagement))
+		// The realtime SSE stream and shared image uploads stay any-admin (v1).
 		realtime.RegisterRoutes(r, hub, authMW.RequireAdmin)
 		if uploadsHandler != nil {
 			uploads.RegisterRoutes(r, uploadsHandler, auditedAdmin)

@@ -26,6 +26,7 @@ func RegisterRoutes(r chi.Router, h *Handler, mw *Middleware, throttle func(http
 
 	r.Group(func(r chi.Router) {
 		r.Use(mw.RequireAuth)
+		r.Post("/account/password", h.ChangePassword)
 		r.Get("/account/addresses", h.ListAddresses)
 		r.Post("/account/addresses", h.CreateAddress)
 		r.Put("/account/addresses/{id}", h.UpdateAddress)
