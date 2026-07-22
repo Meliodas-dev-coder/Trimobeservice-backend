@@ -25,6 +25,24 @@ func NewHandler(svc *Service) *Handler {
 // SetPublisher wires the realtime hub so new bookings stream to admins. Nil-safe.
 func (h *Handler) SetPublisher(p realtime.Publisher) { h.pub = p }
 
+func (h *Handler) BookingCarOptions(w http.ResponseWriter, r *http.Request) {
+	items, err := h.svc.BookingCarOptions(r.Context())
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	httpx.JSON(w, http.StatusOK, httpx.Envelope{"cars": items})
+}
+
+func (h *Handler) BookingDriverOptions(w http.ResponseWriter, r *http.Request) {
+	items, err := h.svc.BookingDriverOptions(r.Context())
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	httpx.JSON(w, http.StatusOK, httpx.Envelope{"drivers": items})
+}
+
 func (h *Handler) publishCreated(b *BookingDetail) { h.publish("booking.created", b) }
 func (h *Handler) publishStatus(b *BookingDetail)  { h.publish("booking.status_changed", b) }
 

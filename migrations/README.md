@@ -36,6 +36,13 @@ MySQL 8.0+ schema for the Trimo multiservice platform, written for
 | 000026 | `customer_location_pins` | lat/lng coordinates + meeting reference on delivery/pickup/event/home-care records |
 | 000027 | `event_line_pricing` | per-line pricing snapshots on event requests |
 | 000028 | `admin_roles_and_permissions` | `admin_roles` (screen-permission bundles) + `users.is_super_admin` / `users.admin_role_id`; backfills existing admins as super-admins |
+| 000029 | `hr_management` | native HR organization, employees, lifecycle, leave, attendance, performance, recruitment, expenses, compensation, private documents, notifications, workflows, and role presets |
+| 000030 | `employee_access_and_hr_scopes` | employee back-office identity reconciliation, department hierarchy/module scope, position submenu/action permissions, scoped HR policies, temporary access assignments, and sensitive-read audit metadata |
+| 000031 | `position_hierarchy` | `hr_positions.parent_position_id` (self-ref, same-department parent) + `hierarchy_rank`: the base per-department position ladder that seeds onboarding managers and drives the `position_hierarchy` leave-approval step |
+| 000032 | `hr_shift_type` | `hr_shifts.shift_type` (day \| night \| special); only `special` shifts keep a user-supplied name |
+| 000033 | `hr_contract_templates` | `hr_contract_templates` (employment \| memo_deal, French body with `{{namespace.key}}` placeholders) + seeded standard bodies |
+| 000034 | `hr_contract_documents` | `hr_contract_documents` (issued documents with frozen `body_rendered`) + `hr_contract_sequences` for gapless per-(kind,year) references |
+| 000035 | `order_departments_and_stock` | `order_items.department` (snapshot, backfilled) so each catalog department reads its own slice of the shared order book; `product_variants.reorder_threshold` + the `stock_movements` ledger (opened with each SKU's current balance) |
 
 They must apply in order — later migrations reference earlier tables via
 foreign keys.
@@ -106,6 +113,25 @@ foreign keys.
   `healthcare_request_assignments`. Practitioner overlap is enforced softly in
   the app (a warning), not by a DB trigger. The emergency contact shown on the
   client page is a single editable row in `healthcare_settings`.
+
+- **Department slicing of orders (000035).** The customer checks out once, pays
+  once, and gets one invoice — that is unchanged. What 000035 adds is a
+  `department` snapshot on each order line so the back office can show a
+  department only its own lines and its own share of an order. The value is
+  frozen at checkout (like the name and price beside it) so the split survives a
+  variant being deleted or a category re-templated. Lines whose variant was
+  already gone at migration time keep a NULL department: unattributable, and
+  therefore visible only to the cross-department Orders screen.
+
+- **Stock ledger (000035).** `product_variants.stock_quantity` stays the single
+  source of truth for what is on hand — reservations are still subtracted from
+  it at checkout and added back on cancellation. `stock_movements` records every
+  one of those changes with a signed `delta` and the resulting
+  `quantity_after`, so a level can always be explained without replaying it from
+  zero. Reservation/release rows are written by the orders module inside the
+  checkout transaction; restocks and corrections come from the stock screen.
+  `reorder_threshold` (0 = no threshold) is what turns a low shelf into a
+  warning rather than a surprise.
 
 ## Running
 

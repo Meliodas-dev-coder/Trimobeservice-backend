@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/jmoiron/sqlx"
+
+	"github.com/trimo/backend/internal/hraccess"
 )
 
 var (
@@ -28,10 +30,11 @@ type sessionMeta struct {
 type Service struct {
 	repo   *Repository
 	tokens *TokenManager
+	access *hraccess.Resolver
 }
 
 func NewService(repo *Repository, tokens *TokenManager) *Service {
-	return &Service{repo: repo, tokens: tokens}
+	return &Service{repo: repo, tokens: tokens, access: hraccess.NewResolver(repo.db)}
 }
 
 func (s *Service) Register(ctx context.Context, req RegisterRequest, meta sessionMeta) (*User, *TokenPair, error) {
@@ -174,8 +177,39 @@ func (s *Service) UserResponse(ctx context.Context, u *User) (UserResponse, erro
 	if err != nil {
 		return resp, err
 	}
-	if len(perms) > 0 {
-		resp.Permissions = perms
+	seen := make(map[string]bool, len(perms)+16)
+	for _, permission := range perms {
+		if !seen[permission] {
+			seen[permission] = true
+			resp.Permissions = append(resp.Permissions, permission)
+		}
+	}
+	resolved, err := s.access.Resolve(ctx, u.ID)
+	if err != nil {
+		return resp, err
+	}
+	if resolved.Employee != nil {
+		resp.Employee = resolved.Employee
+		resp.AccessContext = &AccessContextResponse{
+			BusinessCapabilities: resolved.BusinessCapabilities,
+			HRPolicies:           resolved.HRPolicies,
+			IsManager:            resolved.IsManager,
+			IsDepartmentHead:     resolved.IsDepartmentHead,
+		}
+		if !seen["hr_employee"] && resolved.IsActive && resolved.Employee.EmploymentStatus != "offboarded" && resolved.Employee.EmploymentStatus != "suspended" {
+			seen["hr_employee"] = true
+			resp.Permissions = append(resp.Permissions, "hr_employee")
+		}
+		for _, grant := range resolved.BusinessCapabilities {
+			if !seen[grant.Key] {
+				seen[grant.Key] = true
+				resp.Permissions = append(resp.Permissions, grant.Key)
+			}
+			if grant.AccessLevel == hraccess.LevelManage && !seen[grant.Key+".manage"] {
+				seen[grant.Key+".manage"] = true
+				resp.Permissions = append(resp.Permissions, grant.Key+".manage")
+			}
+		}
 	}
 	return resp, nil
 }

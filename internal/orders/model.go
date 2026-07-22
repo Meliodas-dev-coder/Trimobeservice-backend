@@ -98,12 +98,25 @@ type Order struct {
 	PaidAt            *time.Time `db:"paid_at" json:"paid_at,omitempty"`
 	CreatedAt         time.Time  `db:"created_at" json:"created_at"`
 	UpdatedAt         time.Time  `db:"updated_at" json:"updated_at"`
+
+	// Departments lists every catalog department the order touches (comma
+	// separated). A coffee manager reading a mixed order sees at a glance that
+	// tech lines exist without being shown them.
+	Departments *string `db:"departments" json:"departments,omitempty"`
+	// DepartmentSubtotal/Quantity are the caller's slice of the order and are
+	// present only on a department-filtered list. The customer still paid the
+	// single `Total` once — these never replace it, they explain a share of it.
+	DepartmentSubtotal *string `db:"department_subtotal" json:"department_subtotal,omitempty"`
+	DepartmentQuantity *int    `db:"department_quantity" json:"department_quantity,omitempty"`
 }
 
 type OrderItem struct {
-	ID               int64     `db:"id" json:"id"`
-	OrderID          int64     `db:"order_id" json:"order_id"`
-	ProductVariantID *int64    `db:"product_variant_id" json:"product_variant_id,omitempty"`
+	ID               int64  `db:"id" json:"id"`
+	OrderID          int64  `db:"order_id" json:"order_id"`
+	ProductVariantID *int64 `db:"product_variant_id" json:"product_variant_id,omitempty"`
+	// Department is snapshotted like the name and price, so the admin-side split
+	// survives the variant being deleted or its category re-templated.
+	Department       *string   `db:"department" json:"department,omitempty"`
 	ProductName      string    `db:"product_name" json:"product_name"`
 	VariantLabel     *string   `db:"variant_label" json:"variant_label,omitempty"`
 	SKU              *string   `db:"sku" json:"sku,omitempty"`
@@ -124,11 +137,17 @@ type OrderFilter struct {
 	Status          string
 	PaymentStatus   string
 	FulfillmentType string
-	Limit           int
-	Offset          int
+	// Department keeps a department's back office to its own lines: the list
+	// returns orders containing at least one line from it, plus that
+	// department's subtotal and unit count per order.
+	Department string
+	Limit      int
+	Offset     int
 }
 
 // variantStock is the locked/read subset of a variant used during checkout.
+// TemplateKey rides along so the line's department can be resolved without a
+// second round trip (the template registry owns the mapping).
 type variantStock struct {
 	ID            int64   `db:"id"`
 	SKU           string  `db:"sku"`
@@ -138,6 +157,7 @@ type variantStock struct {
 	IsActive      bool    `db:"is_active"`
 	ProductID     int64   `db:"product_id"`
 	ProductName   string  `db:"product_name"`
+	TemplateKey   string  `db:"template_key"`
 }
 
 // --- request DTOs ---

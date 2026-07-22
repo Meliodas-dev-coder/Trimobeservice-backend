@@ -6,9 +6,14 @@ import (
 	"github.com/go-chi/chi/v5"
 )
 
+type AdminGuards struct {
+	Read   func(http.Handler) http.Handler
+	Manage func(http.Handler) http.Handler
+}
+
 // RegisterRoutes mounts orders routes. Cart + customer order routes require a
 // logged-in user; order management requires an admin.
-func RegisterRoutes(r chi.Router, h *Handler, requireAuth, requireAdmin func(http.Handler) http.Handler) {
+func RegisterRoutes(r chi.Router, h *Handler, requireAuth func(http.Handler) http.Handler, guards AdminGuards) {
 	// client (authenticated customer)
 	r.Group(func(r chi.Router) {
 		r.Use(requireAuth)
@@ -25,13 +30,16 @@ func RegisterRoutes(r chi.Router, h *Handler, requireAuth, requireAdmin func(htt
 		r.Post("/orders/{id}/cancel", h.CancelOrder)
 	})
 
-	// admin
+	// Admin reads and writes are intentionally mounted separately so a
+	// position with read-only order access cannot mutate order state.
 	r.Group(func(r chi.Router) {
-		r.Use(requireAdmin)
-
+		r.Use(guards.Read)
 		r.Get("/admin/orders", h.ListOrdersAdmin)
-		r.Post("/admin/orders", h.CreateOrderAdmin)
 		r.Get("/admin/orders/{id}", h.GetOrderAdmin)
+	})
+	r.Group(func(r chi.Router) {
+		r.Use(guards.Manage)
+		r.Post("/admin/orders", h.CreateOrderAdmin)
 		r.Patch("/admin/orders/{id}/status", h.UpdateOrderStatus)
 		// Payment confirmation is handled by the payments module
 		// (POST /admin/payments), which records an audited ledger entry.

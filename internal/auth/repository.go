@@ -66,7 +66,12 @@ func (r *Repository) GetByEmail(ctx context.Context, email string) (*User, error
 	var u User
 	err := r.db.GetContext(ctx, &u,
 		`SELECT id, role, is_super_admin, email, password_hash, full_name, phone,
-		        email_verified_at, is_active, created_at, updated_at
+		        email_verified_at,
+		        (is_active AND NOT EXISTS (
+		          SELECT 1 FROM hr_employees e
+		          WHERE e.user_id=users.id AND e.employment_status IN ('suspended','offboarded')
+		        )) AS is_active,
+		        created_at, updated_at
 		 FROM users WHERE email = ?`, email)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrUserNotFound
@@ -81,7 +86,12 @@ func (r *Repository) GetByID(ctx context.Context, id int64) (*User, error) {
 	var u User
 	err := r.db.GetContext(ctx, &u,
 		`SELECT id, role, is_super_admin, email, password_hash, full_name, phone,
-		        email_verified_at, is_active, created_at, updated_at
+		        email_verified_at,
+		        (is_active AND NOT EXISTS (
+		          SELECT 1 FROM hr_employees e
+		          WHERE e.user_id=users.id AND e.employment_status IN ('suspended','offboarded')
+		        )) AS is_active,
+		        created_at, updated_at
 		 FROM users WHERE id = ?`, id)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrUserNotFound
@@ -90,6 +100,23 @@ func (r *Repository) GetByID(ctx context.Context, id int64) (*User, error) {
 		return nil, err
 	}
 	return &u, nil
+}
+
+// IsActive is used by authenticated request middleware so deactivation and HR
+// offboarding invalidate access immediately, rather than only when the current
+// JWT expires.
+func (r *Repository) IsActive(ctx context.Context, userID int64) (bool, error) {
+	var active bool
+	err := r.db.GetContext(ctx, &active, `
+		SELECT u.is_active AND NOT EXISTS (
+			SELECT 1 FROM hr_employees e
+			WHERE e.user_id=u.id AND e.employment_status IN ('suspended','offboarded')
+		)
+		FROM users u WHERE u.id=?`, userID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	return active, err
 }
 
 // UpdatePassword sets a new bcrypt hash for the user.

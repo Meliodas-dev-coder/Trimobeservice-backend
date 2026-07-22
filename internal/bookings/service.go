@@ -15,6 +15,14 @@ import (
 
 const carStatusAvailable = "available"
 
+func (s *Service) BookingCarOptions(ctx context.Context) ([]BookingCarOption, error) {
+	return s.repo.ListBookingCarOptions(ctx)
+}
+
+func (s *Service) BookingDriverOptions(ctx context.Context) ([]BookingDriverOption, error) {
+	return s.repo.ListBookingDriverOptions(ctx)
+}
+
 var (
 	ErrCarUnavailable       = errors.New("car is not available for hire")
 	ErrCarNotFree           = errors.New("car is already booked for the selected dates")

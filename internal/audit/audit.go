@@ -30,14 +30,14 @@ type Entry struct {
 // Log is the read model returned to admins: an entry joined with the actor's
 // name/email (nullable if the account was later removed).
 type Log struct {
-	ID          int64           `db:"id" json:"id"`
-	ActorUserID *int64          `db:"actor_user_id" json:"actor_user_id,omitempty"`
-	ActorName   *string         `db:"actor_name" json:"actor_name,omitempty"`
-	ActorEmail  *string         `db:"actor_email" json:"actor_email,omitempty"`
-	Method      string          `db:"method" json:"method"`
-	Path        string          `db:"path" json:"path"`
-	TargetType  *string         `db:"target_type" json:"target_type,omitempty"`
-	TargetID    *int64          `db:"target_id" json:"target_id,omitempty"`
+	ID          int64          `db:"id" json:"id"`
+	ActorUserID *int64         `db:"actor_user_id" json:"actor_user_id,omitempty"`
+	ActorName   *string        `db:"actor_name" json:"actor_name,omitempty"`
+	ActorEmail  *string        `db:"actor_email" json:"actor_email,omitempty"`
+	Method      string         `db:"method" json:"method"`
+	Path        string         `db:"path" json:"path"`
+	TargetType  *string        `db:"target_type" json:"target_type,omitempty"`
+	TargetID    *int64         `db:"target_id" json:"target_id,omitempty"`
 	StatusCode  int            `db:"status_code" json:"status_code"`
 	Payload     types.JSONText `db:"payload" json:"payload,omitempty"`
 	CreatedAt   time.Time      `db:"created_at" json:"created_at"`

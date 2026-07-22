@@ -55,17 +55,61 @@ func (h *Handler) GetProductPublic(w http.ResponseWriter, r *http.Request) {
 
 // ListTemplates returns the product-type registry the admin form renders from,
 // plus the departments those types are grouped into.
-func (h *Handler) ListTemplates(w http.ResponseWriter, _ *http.Request) {
-	httpx.JSON(w, http.StatusOK, httpx.Envelope{"templates": Templates(), "departments": Departments()})
+func (h *Handler) ListTemplates(w http.ResponseWriter, r *http.Request) {
+	access := catalogAccessFromContext(r.Context())
+	allowed := departmentSet(access.allowedTemplateDepartments())
+	if len(allowed) == 0 {
+		httpx.Error(w, http.StatusForbidden, "you do not have access to any catalog department")
+		return
+	}
+
+	templates := make([]ProductTemplate, 0, len(Templates()))
+	for _, template := range Templates() {
+		if allowed[template.Department] {
+			templates = append(templates, template)
+		}
+	}
+	departments := make([]Department, 0, len(Departments()))
+	for _, department := range Departments() {
+		if allowed[department.Key] {
+			departments = append(departments, department)
+		}
+	}
+	httpx.JSON(w, http.StatusOK, httpx.Envelope{"templates": templates, "departments": departments})
 }
 
 // ===================== admin: categories =====================
 
 func (h *Handler) ListCategoriesAdmin(w http.ResponseWriter, r *http.Request) {
-	cats, err := h.svc.ListCategories(r.Context(), false, departmentParam(r))
+	department, err := adminDepartmentParam(r)
 	if err != nil {
 		writeError(w, err)
 		return
+	}
+	access := catalogAccessFromContext(r.Context())
+	allowed := departmentSet(access.allowedDepartments(catalogResourceCategories, false))
+	if department != "" && !allowed[department] {
+		httpx.Error(w, http.StatusForbidden, "you do not have access to this catalog department")
+		return
+	}
+	if len(allowed) == 0 {
+		httpx.Error(w, http.StatusForbidden, "you do not have access to any catalog department")
+		return
+	}
+	cats, err := h.svc.ListCategories(r.Context(), false, department)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if department == "" && !access.current.IsSuper {
+		filtered := make([]Category, 0, len(cats))
+		for _, category := range cats {
+			categoryDepartment, resolveErr := categoryDepartment(&category)
+			if resolveErr == nil && allowed[categoryDepartment] {
+				filtered = append(filtered, category)
+			}
+		}
+		cats = filtered
 	}
 	httpx.JSON(w, http.StatusOK, httpx.Envelope{"categories": cats})
 }
@@ -77,6 +121,14 @@ func (h *Handler) CreateCategory(w http.ResponseWriter, r *http.Request) {
 	}
 	if problems := validateCategory(req); len(problems) > 0 {
 		httpx.ValidationError(w, problems)
+		return
+	}
+	department, err := templateDepartment(req.TemplateKey)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if !requireCatalogDepartment(w, r, department, catalogResourceCategories, true) {
 		return
 	}
 	c, err := h.svc.CreateCategory(r.Context(), req)
@@ -100,6 +152,20 @@ func (h *Handler) UpdateCategory(w http.ResponseWriter, r *http.Request) {
 		httpx.ValidationError(w, problems)
 		return
 	}
+	sourceDepartment, err := h.svc.CategoryDepartment(r.Context(), id)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	destinationDepartment, err := templateDepartment(req.TemplateKey)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if !requireCatalogDepartment(w, r, sourceDepartment, catalogResourceCategories, true) ||
+		!requireCatalogDepartment(w, r, destinationDepartment, catalogResourceCategories, true) {
+		return
+	}
 	c, err := h.svc.UpdateCategory(r.Context(), id, req)
 	if err != nil {
 		writeError(w, err)
@@ -113,6 +179,14 @@ func (h *Handler) DeleteCategory(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	department, err := h.svc.CategoryDepartment(r.Context(), id)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if !requireCatalogDepartment(w, r, department, catalogResourceCategories, true) {
+		return
+	}
 	if err := h.svc.DeleteCategory(r.Context(), id); err != nil {
 		writeError(w, err)
 		return
@@ -123,10 +197,34 @@ func (h *Handler) DeleteCategory(w http.ResponseWriter, r *http.Request) {
 // ===================== admin: brands =====================
 
 func (h *Handler) ListBrandsAdmin(w http.ResponseWriter, r *http.Request) {
-	brands, err := h.svc.ListBrands(r.Context(), false, departmentParam(r))
+	department, err := adminDepartmentParam(r)
 	if err != nil {
 		writeError(w, err)
 		return
+	}
+	access := catalogAccessFromContext(r.Context())
+	allowed := departmentSet(access.allowedDepartments(catalogResourceBrands, false))
+	if department != "" && !allowed[department] {
+		httpx.Error(w, http.StatusForbidden, "you do not have access to this catalog department")
+		return
+	}
+	if len(allowed) == 0 {
+		httpx.Error(w, http.StatusForbidden, "you do not have access to any catalog department")
+		return
+	}
+	brands, err := h.svc.ListBrands(r.Context(), false, department)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if department == "" && !access.current.IsSuper {
+		filtered := make([]Brand, 0, len(brands))
+		for _, brand := range brands {
+			if allowed[brand.Department] {
+				filtered = append(filtered, brand)
+			}
+		}
+		brands = filtered
 	}
 	httpx.JSON(w, http.StatusOK, httpx.Envelope{"brands": brands})
 }
@@ -138,6 +236,10 @@ func (h *Handler) CreateBrand(w http.ResponseWriter, r *http.Request) {
 	}
 	if problems := validateBrand(req); len(problems) > 0 {
 		httpx.ValidationError(w, problems)
+		return
+	}
+	department := departmentOrDefault(req.Department)
+	if !requireCatalogDepartment(w, r, department, catalogResourceBrands, true) {
 		return
 	}
 	b, err := h.svc.CreateBrand(r.Context(), req)
@@ -161,6 +263,16 @@ func (h *Handler) UpdateBrand(w http.ResponseWriter, r *http.Request) {
 		httpx.ValidationError(w, problems)
 		return
 	}
+	sourceDepartment, err := h.svc.BrandDepartment(r.Context(), id)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	destinationDepartment := departmentOrDefault(req.Department)
+	if !requireCatalogDepartment(w, r, sourceDepartment, catalogResourceBrands, true) ||
+		!requireCatalogDepartment(w, r, destinationDepartment, catalogResourceBrands, true) {
+		return
+	}
 	b, err := h.svc.UpdateBrand(r.Context(), id, req)
 	if err != nil {
 		writeError(w, err)
@@ -172,6 +284,14 @@ func (h *Handler) UpdateBrand(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) DeleteBrand(w http.ResponseWriter, r *http.Request) {
 	id, ok := idParam(w, r)
 	if !ok {
+		return
+	}
+	department, err := h.svc.BrandDepartment(r.Context(), id)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if !requireCatalogDepartment(w, r, department, catalogResourceBrands, true) {
 		return
 	}
 	if err := h.svc.DeleteBrand(r.Context(), id); err != nil {

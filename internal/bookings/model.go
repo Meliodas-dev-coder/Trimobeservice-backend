@@ -77,6 +77,22 @@ type DriverInfo struct {
 	Phone    string `db:"phone" json:"phone"`
 }
 
+// BookingCarOption/BookingDriverOption are deliberately least-data selector
+// rows. Booking-only positions can create and assign bookings without receiving
+// fleet notes, vehicle details, driver licences, or other submenu data.
+type BookingCarOption struct {
+	ID           int64  `db:"id" json:"id"`
+	Name         string `db:"name" json:"name"`
+	CategoryName string `db:"category_name" json:"category_name"`
+	Status       string `db:"status" json:"status"`
+}
+
+type BookingDriverOption struct {
+	ID       int64  `db:"id" json:"id"`
+	FullName string `db:"full_name" json:"full_name"`
+	Status   string `db:"status" json:"status"`
+}
+
 type BookingDetail struct {
 	Booking
 	Driver *DriverInfo        `json:"driver,omitempty"`

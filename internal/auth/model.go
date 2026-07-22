@@ -2,7 +2,11 @@
 // refresh tokens for both customers and the admin.
 package auth
 
-import "time"
+import (
+	"time"
+
+	"github.com/trimo/backend/internal/hraccess"
+)
 
 // Role mirrors the users.role enum.
 type Role string
@@ -90,13 +94,22 @@ type TokenPair struct {
 }
 
 type UserResponse struct {
-	ID           int64    `json:"id"`
-	Role         Role     `json:"role"`
-	IsSuperAdmin bool     `json:"is_super_admin"`
-	Permissions  []string `json:"permissions"`
-	Email        string   `json:"email"`
-	FullName     string   `json:"full_name"`
-	Phone        string   `json:"phone,omitempty"`
+	ID            int64                      `json:"id"`
+	Role          Role                       `json:"role"`
+	IsSuperAdmin  bool                       `json:"is_super_admin"`
+	Permissions   []string                   `json:"permissions"`
+	Email         string                     `json:"email"`
+	FullName      string                     `json:"full_name"`
+	Phone         string                     `json:"phone,omitempty"`
+	Employee      *hraccess.EmployeeIdentity `json:"employee,omitempty"`
+	AccessContext *AccessContextResponse     `json:"access_context,omitempty"`
+}
+
+type AccessContextResponse struct {
+	BusinessCapabilities []hraccess.BusinessGrant `json:"business_capabilities"`
+	HRPolicies           []hraccess.HRPolicy      `json:"hr_policies"`
+	IsManager            bool                     `json:"is_manager"`
+	IsDepartmentHead     bool                     `json:"is_department_head"`
 }
 
 // toUserResponse maps the base identity fields. Permissions are filled in

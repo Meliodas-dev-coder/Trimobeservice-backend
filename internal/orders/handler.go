@@ -216,12 +216,20 @@ func (h *Handler) CancelOrder(w http.ResponseWriter, r *http.Request) {
 // ===================== admin: orders =====================
 
 func (h *Handler) ListOrdersAdmin(w http.ResponseWriter, r *http.Request) {
+	department, ok := departmentParam(w, r)
+	if !ok {
+		return
+	}
+	if !authorizeList(w, r, department) {
+		return
+	}
 	q := r.URL.Query()
 	limit, page := parsePage(r)
 	f := OrderFilter{
 		Status:          q.Get("status"),
 		PaymentStatus:   q.Get("payment_status"),
 		FulfillmentType: q.Get("fulfillment_type"),
+		Department:      department,
 		Limit:           limit,
 		Offset:          (page - 1) * limit,
 	}
@@ -245,7 +253,7 @@ func (h *Handler) CreateOrderAdmin(w http.ResponseWriter, r *http.Request) {
 		httpx.ValidationError(w, p)
 		return
 	}
-	order, err := h.svc.AdminCreateOrder(r.Context(), req)
+	order, err := h.svc.AdminCreateOrder(r.Context(), req, scopeFrom(r.Context(), true))
 	if err != nil {
 		writeError(w, err)
 		return
@@ -264,7 +272,14 @@ func (h *Handler) GetOrderAdmin(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	httpx.JSON(w, http.StatusOK, httpx.Envelope{"order": order})
+	// A department admin gets the order trimmed to their own lines. An order
+	// with nothing of theirs in it simply does not exist for them.
+	scoped := applyScope(order, scopeFrom(r.Context(), false))
+	if scoped == nil {
+		httpx.Error(w, http.StatusNotFound, ErrOrderNotFound.Error())
+		return
+	}
+	httpx.JSON(w, http.StatusOK, httpx.Envelope{"order": scoped})
 }
 
 func (h *Handler) UpdateOrderStatus(w http.ResponseWriter, r *http.Request) {
@@ -280,7 +295,7 @@ func (h *Handler) UpdateOrderStatus(w http.ResponseWriter, r *http.Request) {
 		httpx.ValidationError(w, map[string]string{"status": "is required"})
 		return
 	}
-	order, err := h.svc.UpdateStatus(r.Context(), id, req.Status)
+	order, err := h.svc.UpdateStatus(r.Context(), id, req.Status, scopeFrom(r.Context(), true))
 	if err != nil {
 		writeError(w, err)
 		return
@@ -345,6 +360,8 @@ func writeError(w http.ResponseWriter, err error) {
 		errors.Is(err, ErrNotCancellable),
 		errors.Is(err, ErrInvalidTransition):
 		httpx.Error(w, http.StatusConflict, err.Error())
+	case errors.Is(err, ErrForbiddenDepartment):
+		httpx.Error(w, http.StatusForbidden, err.Error())
 	case errors.Is(err, ErrCartEmpty), errors.Is(err, ErrInvalidFulfillment), errors.Is(err, ErrNoItems):
 		httpx.Error(w, http.StatusUnprocessableEntity, err.Error())
 	default:

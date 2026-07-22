@@ -9,6 +9,7 @@ import (
 
 	"github.com/trimo/backend/internal/auth"
 	"github.com/trimo/backend/internal/authz"
+	"github.com/trimo/backend/internal/hraccess"
 )
 
 var (
@@ -16,16 +17,18 @@ var (
 	ErrEmailTaken          = errors.New("email already registered")
 	ErrSystemRole          = errors.New("built-in roles cannot be modified")
 	ErrSuperAdminProtected = errors.New("the super-admin account cannot be edited here")
+	ErrEmployeeStatus      = errors.New("reactivate the employee through an HR lifecycle workflow first")
 )
 
 // Service holds the admin users/roles business logic and doubles as the
 // authz.PermissionLoader for the enforcement middleware.
 type Service struct {
-	repo *Repository
+	repo   *Repository
+	access *hraccess.Resolver
 }
 
 func NewService(repo *Repository) *Service {
-	return &Service{repo: repo}
+	return &Service{repo: repo, access: hraccess.NewResolver(repo.db)}
 }
 
 // Load implements authz.PermissionLoader.
@@ -34,7 +37,51 @@ func (s *Service) Load(ctx context.Context, userID int64) (bool, authz.Permissio
 	if err != nil {
 		return false, nil, err
 	}
-	return isSuper, authz.NewPermissionSet(perms), nil
+	set := authz.NewPermissionSet(perms)
+	if isSuper {
+		return true, set, nil
+	}
+	resolved, err := s.access.Resolve(ctx, userID)
+	if err != nil {
+		return false, nil, err
+	}
+	if resolved.Employee == nil {
+		return false, set, nil
+	}
+	if !resolved.IsActive || resolved.Employee.EmploymentStatus == "offboarded" || resolved.Employee.EmploymentStatus == "suspended" {
+		// A linked employee identity is authoritative. Never fall back to the
+		// legacy role when HR has suspended/offboarded that employee.
+		return false, authz.PermissionSet{}, nil
+	}
+	set[authz.PermHREmployee] = struct{}{}
+	for _, grant := range resolved.BusinessCapabilities {
+		if !authz.IsCapabilityKey(grant.Key) {
+			continue
+		}
+		set[grant.Key] = struct{}{}
+		if grant.AccessLevel == hraccess.LevelManage {
+			set[grant.Key+".manage"] = struct{}{}
+		}
+	}
+	featurePermissions := map[string]string{
+		"dashboard": authz.PermHRDashboard, "employees": authz.PermHREmployees,
+		"emergency_contacts": authz.PermHREmployees, "organization": authz.PermHROrganization,
+		"lifecycle": authz.PermHRLifecycle, "contracts": authz.PermHRCompensation,
+		"documents": authz.PermHRDocuments, "leave": authz.PermHRLeave,
+		"attendance": authz.PermHRAttendance, "performance": authz.PermHRPerformance,
+		"recruitment": authz.PermHRRecruitment, "expenses": authz.PermHRExpenses,
+		"compensation": authz.PermHRCompensation, "benefits": authz.PermHRCompensation,
+		"reports": authz.PermHRReports,
+	}
+	for _, policy := range resolved.HRPolicies {
+		if policy.Feature == "audit" && policy.Scope == hraccess.ScopeAll && (policy.Action == "view" || policy.Action == "*") {
+			set[authz.PermHRAudit] = struct{}{}
+		}
+		if key := featurePermissions[policy.Feature]; key != "" {
+			set[key] = struct{}{}
+		}
+	}
+	return false, set, nil
 }
 
 // --- roles ---
@@ -173,6 +220,15 @@ func (s *Service) UpdateUser(ctx context.Context, id int64, req UpdateUserReques
 	isActive := existing.IsActive
 	if req.IsActive != nil {
 		isActive = *req.IsActive
+	}
+	if isActive && !existing.IsActive {
+		status, linked, err := s.repo.LinkedEmployeeStatus(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		if linked && (status == "suspended" || status == "offboarded") {
+			return nil, ErrEmployeeStatus
+		}
 	}
 	if err := s.repo.UpdateUser(ctx, id, strings.TrimSpace(req.FullName), cleanOptional(req.Phone), req.AdminRoleID, isActive); err != nil {
 		return nil, err

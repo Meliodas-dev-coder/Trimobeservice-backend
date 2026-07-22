@@ -76,6 +76,14 @@ type AdminUser struct {
 	CreatedAt    time.Time `db:"created_at" json:"created_at"`
 }
 
+// CapabilityGrant is a position/employee business access row. Effect is empty
+// for position defaults and allow/deny for employee exceptions.
+type CapabilityGrant struct {
+	Key         string `db:"capability_key"`
+	AccessLevel string `db:"access_level"`
+	Effect      string `db:"effect"`
+}
+
 // --- request DTOs ---
 
 type RoleRequest struct {

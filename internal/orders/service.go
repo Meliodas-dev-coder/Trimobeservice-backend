@@ -11,6 +11,9 @@ import (
 	"time"
 
 	"github.com/jmoiron/sqlx"
+
+	"github.com/trimo/backend/internal/catalog"
+	"github.com/trimo/backend/internal/stock"
 )
 
 var (
@@ -21,6 +24,9 @@ var (
 	ErrNotCancellable     = errors.New("order can no longer be cancelled")
 	ErrInvalidTransition  = errors.New("invalid status transition")
 	ErrNoItems            = errors.New("order has no items")
+	// ErrForbiddenDepartment is returned when a department-scoped admin tries to
+	// act on lines outside their catalog department.
+	ErrForbiddenDepartment = errors.New("you do not have access to every line of this order")
 )
 
 type Service struct {
@@ -153,6 +159,7 @@ func (s *Service) Checkout(ctx context.Context, userID int64, req CheckoutReques
 	err = s.repo.InTx(ctx, func(tx *sqlx.Tx) error {
 		var subtotal int64
 		orderItems := make([]OrderItem, 0, len(items))
+		reservations := make([]stock.Movement, 0, len(items))
 
 		for _, ci := range items {
 			vs, err := s.repo.LockVariant(ctx, tx, ci.ProductVariantID)
@@ -176,8 +183,10 @@ func (s *Service) Checkout(ctx context.Context, userID int64, req CheckoutReques
 			subtotal += line
 			variantID := vs.ID
 			sku := vs.SKU
+			department := catalog.DepartmentForTemplateKey(vs.TemplateKey)
 			orderItems = append(orderItems, OrderItem{
 				ProductVariantID: &variantID,
+				Department:       &department,
 				ProductName:      vs.ProductName,
 				VariantLabel:     vs.Label,
 				SKU:              &sku,
@@ -185,6 +194,11 @@ func (s *Service) Checkout(ctx context.Context, userID int64, req CheckoutReques
 				Quantity:         ci.Quantity,
 				LineTotal:        formatCents(line),
 			})
+			// The row stays locked for the rest of the transaction, so the level
+			// we just wrote is the level the ledger records. The order id is only
+			// known after the insert below, hence the deferred write.
+			reservations = append(reservations,
+				stock.OrderMovement(vs.ID, department, -ci.Quantity, vs.StockQuantity-ci.Quantity, 0))
 		}
 
 		shipping := int64(0) // flat/no shipping fee for now
@@ -231,6 +245,9 @@ func (s *Service) Checkout(ctx context.Context, userID int64, req CheckoutReques
 				return err
 			}
 		}
+		if err := recordReservations(ctx, tx, reservations, id); err != nil {
+			return err
+		}
 		return s.repo.MarkCartConverted(ctx, tx, cart.ID)
 	})
 	if err != nil {
@@ -275,7 +292,7 @@ func (s *Service) CancelMyOrder(ctx context.Context, userID, orderID int64) (*Or
 
 // AdminCreateOrder builds a phone/walk-in order from explicit line items (rather
 // than a cart), reserving stock and snapshotting prices like customer checkout.
-func (s *Service) AdminCreateOrder(ctx context.Context, req AdminCreateOrderRequest) (*OrderDetail, error) {
+func (s *Service) AdminCreateOrder(ctx context.Context, req AdminCreateOrderRequest, scope Scope) (*OrderDetail, error) {
 	if req.FulfillmentType != FulfillmentDelivery && req.FulfillmentType != FulfillmentPickup {
 		return nil, ErrInvalidFulfillment
 	}
@@ -287,6 +304,7 @@ func (s *Service) AdminCreateOrder(ctx context.Context, req AdminCreateOrderRequ
 	err := s.repo.InTx(ctx, func(tx *sqlx.Tx) error {
 		var subtotal int64
 		orderItems := make([]OrderItem, 0, len(req.Items))
+		reservations := make([]stock.Movement, 0, len(req.Items))
 
 		for _, li := range req.Items {
 			if li.Quantity <= 0 {
@@ -313,8 +331,14 @@ func (s *Service) AdminCreateOrder(ctx context.Context, req AdminCreateOrderRequ
 			subtotal += line
 			variantID := vs.ID
 			sku := vs.SKU
+			department := catalog.DepartmentForTemplateKey(vs.TemplateKey)
+			// A department admin may only sell their own catalog.
+			if !scope.Covers(&department) {
+				return ErrForbiddenDepartment
+			}
 			orderItems = append(orderItems, OrderItem{
 				ProductVariantID: &variantID,
+				Department:       &department,
 				ProductName:      vs.ProductName,
 				VariantLabel:     vs.Label,
 				SKU:              &sku,
@@ -322,6 +346,8 @@ func (s *Service) AdminCreateOrder(ctx context.Context, req AdminCreateOrderRequ
 				Quantity:         li.Quantity,
 				LineTotal:        formatCents(line),
 			})
+			reservations = append(reservations,
+				stock.OrderMovement(vs.ID, department, -li.Quantity, vs.StockQuantity-li.Quantity, 0))
 		}
 
 		now := time.Now()
@@ -358,7 +384,7 @@ func (s *Service) AdminCreateOrder(ctx context.Context, req AdminCreateOrderRequ
 				return err
 			}
 		}
-		return nil
+		return recordReservations(ctx, tx, reservations, id)
 	})
 	if err != nil {
 		return nil, err
@@ -374,10 +400,21 @@ func (s *Service) GetOrder(ctx context.Context, orderID int64) (*OrderDetail, er
 	return s.orderDetail(ctx, orderID)
 }
 
-func (s *Service) UpdateStatus(ctx context.Context, orderID int64, target string) (*OrderDetail, error) {
+func (s *Service) UpdateStatus(ctx context.Context, orderID int64, target string, scope Scope) (*OrderDetail, error) {
 	o, err := s.repo.GetOrderByID(ctx, orderID)
 	if err != nil {
 		return nil, err
+	}
+	// Status is a property of the whole order, so a department admin may only
+	// move an order that contains nothing but their own lines.
+	if !scope.All {
+		items, err := s.repo.ListOrderItems(ctx, o.ID)
+		if err != nil {
+			return nil, err
+		}
+		if !scope.CoversAll(items) {
+			return nil, ErrForbiddenDepartment
+		}
 	}
 	if !canTransition(o.FulfillmentType, o.Status, target) {
 		return nil, ErrInvalidTransition
@@ -413,8 +450,21 @@ func (s *Service) ExpireStalePickups(ctx context.Context) (int, error) {
 
 // --- helpers ---
 
+// recordReservations writes the checkout reservations to the stock ledger once
+// the order id exists to reference.
+func recordReservations(ctx context.Context, tx *sqlx.Tx, movements []stock.Movement, orderID int64) error {
+	for _, m := range movements {
+		m.ReferenceID = &orderID
+		if err := stock.RecordTx(ctx, tx, m); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // releaseAndSetStatus restores each line's stock and sets the terminal status,
-// all in one transaction.
+// all in one transaction. Each return is mirrored into the stock ledger so the
+// shelf history explains cancellations and lapsed pickup holds too.
 func (s *Service) releaseAndSetStatus(ctx context.Context, orderID int64, status string) error {
 	return s.repo.InTx(ctx, func(tx *sqlx.Tx) error {
 		items, err := s.repo.ListOrderItemsTx(ctx, tx, orderID)
@@ -422,10 +472,15 @@ func (s *Service) releaseAndSetStatus(ctx context.Context, orderID int64, status
 			return err
 		}
 		for _, it := range items {
-			if it.ProductVariantID != nil {
-				if err := s.repo.AdjustStock(ctx, tx, *it.ProductVariantID, it.Quantity); err != nil {
-					return err
-				}
+			if it.ProductVariantID == nil {
+				continue
+			}
+			department := ""
+			if it.Department != nil {
+				department = *it.Department
+			}
+			if err := s.repo.ReleaseStockTx(ctx, tx, *it.ProductVariantID, it.Quantity, department, orderID); err != nil {
+				return err
 			}
 		}
 		return s.repo.SetOrderStatusTx(ctx, tx, orderID, status)

@@ -45,6 +45,7 @@ func New(cfg *config.Config, log *slog.Logger, db *sqlx.DB) *Server {
 		AllowedOrigins:   cfg.HTTP.CORSOrigins,
 		AllowedMethods:   []string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete, http.MethodOptions},
 		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type"},
+		ExposedHeaders:   []string{"Content-Disposition"},
 		AllowCredentials: true,
 		MaxAge:           300,
 	}))

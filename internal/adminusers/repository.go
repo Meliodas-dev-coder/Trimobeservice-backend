@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/jmoiron/sqlx"
@@ -153,14 +154,55 @@ func (r *Repository) EmailExists(ctx context.Context, email string) (bool, error
 }
 
 func (r *Repository) CreateUser(ctx context.Context, fullName, email, passwordHash string, phone *string, roleID *int64, isActive bool) (int64, error) {
-	res, err := r.db.ExecContext(ctx,
+	tx, err := r.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+	res, err := tx.ExecContext(ctx,
 		`INSERT INTO users (role, is_super_admin, admin_role_id, email, password_hash, full_name, phone, is_active)
 		 VALUES ('admin', FALSE, ?, ?, ?, ?, ?, ?)`,
 		roleID, email, passwordHash, fullName, phone, isActive)
 	if err != nil {
 		return 0, err
 	}
-	return res.LastInsertId()
+	id, err := res.LastInsertId()
+	if err != nil {
+		return 0, err
+	}
+	linked, err := tx.ExecContext(ctx, `UPDATE hr_employees SET user_id=? WHERE work_email=? AND user_id IS NULL`, id, email)
+	if err != nil {
+		return 0, err
+	}
+	rows, err := linked.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
+	if rows == 0 {
+		first, last := splitEmployeeName(fullName)
+		status := "active"
+		if !isActive {
+			status = "suspended"
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO hr_employees(user_id,employee_number,first_name,last_name,work_email,phone,hire_date,employment_status,employment_type,notes) VALUES(?,?,?,?,?,?,CURRENT_DATE,?,'permanent','Created from the legacy Team Members API.')`, id, fmt.Sprintf("TM-%08d", id), first, last, email, phone, status); err != nil {
+			return 0, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return id, nil
+}
+
+func splitEmployeeName(fullName string) (string, string) {
+	parts := strings.Fields(fullName)
+	if len(parts) == 0 {
+		return "Employee", "-"
+	}
+	if len(parts) == 1 {
+		return parts[0], "-"
+	}
+	return parts[0], strings.Join(parts[1:], " ")
 }
 
 func (r *Repository) UpdateUser(ctx context.Context, id int64, fullName string, phone *string, roleID *int64, isActive bool) error {
@@ -172,6 +214,18 @@ func (r *Repository) UpdateUser(ctx context.Context, id int64, fullName string, 
 		return err
 	}
 	return affectedOne(res, ErrUserNotFound)
+}
+
+func (r *Repository) LinkedEmployeeStatus(ctx context.Context, userID int64) (string, bool, error) {
+	var status sql.NullString
+	err := r.db.GetContext(ctx, &status, `SELECT employment_status FROM hr_employees WHERE user_id=? LIMIT 1`, userID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, err
+	}
+	return status.String, status.Valid, nil
 }
 
 // LoadAuthz returns the user's super-admin flag and the JSON permissions of
@@ -194,6 +248,52 @@ func (r *Repository) LoadAuthz(ctx context.Context, userID int64) (bool, StringS
 		return false, nil, err
 	}
 	return row.IsSuper, row.Perms, nil
+}
+
+// LoadEmployeeCapabilities loads the organization-derived portion of access.
+// Department modules are returned separately so the service can validate the
+// stable capability catalog without duplicating it in SQL.
+func (r *Repository) LoadEmployeeCapabilities(ctx context.Context, userID int64) (bool, []string, []CapabilityGrant, error) {
+	var linked bool
+	if err := r.db.GetContext(ctx, &linked, `
+		SELECT EXISTS(
+			SELECT 1 FROM hr_employees e
+			JOIN users u ON u.id=e.user_id
+			WHERE e.user_id=? AND u.is_active=TRUE
+			  AND e.employment_status NOT IN ('offboarded','suspended')
+		)`, userID); err != nil {
+		return false, nil, nil, err
+	}
+	if !linked {
+		return false, []string{}, []CapabilityGrant{}, nil
+	}
+
+	modules := []string{}
+	if err := r.db.SelectContext(ctx, &modules, `
+		SELECT DISTINCT dm.module_key
+		FROM hr_employees e
+		JOIN hr_department_modules dm ON dm.department_id=e.department_id
+		WHERE e.user_id=?`, userID); err != nil {
+		return false, nil, nil, err
+	}
+
+	grants := []CapabilityGrant{}
+	if err := r.db.SelectContext(ctx, &grants, `
+		SELECT pc.capability_key, pc.access_level, '' AS effect
+		FROM hr_employees e
+		JOIN hr_position_capabilities pc ON pc.position_id=e.position_id
+		WHERE e.user_id=?
+		UNION ALL
+		SELECT ea.permission_key AS capability_key, ea.access_level, ea.effect
+		FROM hr_employees e
+		JOIN hr_employee_access_assignments ea ON ea.employee_id=e.id
+		WHERE e.user_id=?
+		  AND ea.permission_key NOT LIKE 'hr.%'
+		  AND (ea.starts_at IS NULL OR ea.starts_at<=CURRENT_DATE)
+		  AND (ea.ends_at IS NULL OR ea.ends_at>=CURRENT_DATE)`, userID, userID); err != nil {
+		return false, nil, nil, err
+	}
+	return true, modules, grants, nil
 }
 
 func affectedOne(res sql.Result, notFound error) error {

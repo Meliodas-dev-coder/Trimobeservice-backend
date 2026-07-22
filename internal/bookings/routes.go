@@ -8,7 +8,11 @@ import (
 
 // RegisterRoutes mounts booking routes. Availability is public; customer booking
 // routes require a logged-in user; management requires an admin.
-func RegisterRoutes(r chi.Router, h *Handler, requireAuth, requireAdmin func(http.Handler) http.Handler) {
+type AdminGuards struct {
+	Read, Manage func(http.Handler) http.Handler
+}
+
+func RegisterRoutes(r chi.Router, h *Handler, requireAuth func(http.Handler) http.Handler, admin AdminGuards) {
 	// public
 	r.Get("/availability", h.CheckAvailability)
 	r.Get("/availability/ranges", h.BookedRanges)
@@ -26,14 +30,14 @@ func RegisterRoutes(r chi.Router, h *Handler, requireAuth, requireAdmin func(htt
 
 	// admin
 	r.Group(func(r chi.Router) {
-		r.Use(requireAdmin)
-
-		r.Get("/admin/bookings", h.ListAdmin)
-		r.Post("/admin/bookings", h.CreateAdmin)
-		r.Get("/admin/bookings/{id}", h.GetAdmin)
-		r.Delete("/admin/bookings/{id}", h.DeleteAdmin)
-		r.Post("/admin/bookings/{id}/assign-driver", h.AssignDriver)
-		r.Patch("/admin/bookings/{id}/status", h.UpdateStatus)
+		r.With(admin.Read).Get("/admin/bookings/lookups/cars", h.BookingCarOptions)
+		r.With(admin.Read).Get("/admin/bookings/lookups/drivers", h.BookingDriverOptions)
+		r.With(admin.Read).Get("/admin/bookings", h.ListAdmin)
+		r.With(admin.Manage).Post("/admin/bookings", h.CreateAdmin)
+		r.With(admin.Read).Get("/admin/bookings/{id}", h.GetAdmin)
+		r.With(admin.Manage).Delete("/admin/bookings/{id}", h.DeleteAdmin)
+		r.With(admin.Manage).Post("/admin/bookings/{id}/assign-driver", h.AssignDriver)
+		r.With(admin.Manage).Patch("/admin/bookings/{id}/status", h.UpdateStatus)
 		// Payment confirmation is handled by the payments module
 		// (POST /admin/payments), which records an audited ledger entry.
 	})

@@ -77,6 +77,13 @@ func isMutating(method string) bool {
 // still read it. Non-JSON bodies (e.g. multipart uploads) are skipped, oversized
 // bodies are dropped, and known secret keys are redacted.
 func capturePayload(r *http.Request) []byte {
+	// HR writes can contain salary, identity, emergency-contact, medical, and
+	// performance data. The audit entry still records who acted, the path,
+	// target, status, and time, but never persists the request body itself.
+	// Domain workflow tables retain the safe business history (approvals, etc.).
+	if isHRPath(r.URL.Path) {
+		return nil
+	}
 	if r.Body == nil || !strings.HasPrefix(r.Header.Get("Content-Type"), "application/json") {
 		return nil
 	}
@@ -88,6 +95,14 @@ func capturePayload(r *http.Request) []byte {
 		return nil
 	}
 	return redactSecrets(body)
+}
+
+func isHRPath(path string) bool {
+	trimmed := strings.Trim(strings.ToLower(path), "/")
+	return trimmed == "admin/hr" ||
+		strings.HasPrefix(trimmed, "admin/hr/") ||
+		strings.Contains(trimmed, "/admin/hr/") ||
+		strings.HasSuffix(trimmed, "/admin/hr")
 }
 
 // redactSecrets blanks common sensitive keys on top-level JSON objects so they
@@ -123,8 +138,15 @@ func parseTarget(path string) (string, int64) {
 			continue
 		}
 		resource := parts[i+1]
+		idStart := i + 2
+		// HR is a namespace, not the audited entity. Preserve the concrete
+		// resource so filters can distinguish employees, leave requests, etc.
+		if resource == "hr" && i+2 < len(parts) {
+			resource = "hr_" + strings.ReplaceAll(parts[i+2], "-", "_")
+			idStart = i + 3
+		}
 		var id int64
-		for _, seg := range parts[i+2:] {
+		for _, seg := range parts[idStart:] {
 			if n, err := strconv.ParseInt(seg, 10, 64); err == nil {
 				id = n
 				break

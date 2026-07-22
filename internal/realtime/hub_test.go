@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+
+	"github.com/trimo/backend/internal/authz"
 )
 
 // TestStreamDeliversEvent boots the real SSE handler over an httptest server and
@@ -18,7 +20,12 @@ import (
 func TestStreamDeliversEvent(t *testing.T) {
 	hub := NewHub()
 	r := chi.NewRouter()
-	passthrough := func(next http.Handler) http.Handler { return next } // stand in for RequireAdmin
+	passthrough := func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			ctx := authz.WithCurrentAccess(r.Context(), authz.CurrentAccess{IsSuper: true, Permissions: authz.PermissionSet{}})
+			next.ServeHTTP(w, r.WithContext(ctx))
+		})
+	} // stand in for RequireAdmin
 	RegisterRoutes(r, hub, passthrough)
 
 	srv := httptest.NewServer(r)

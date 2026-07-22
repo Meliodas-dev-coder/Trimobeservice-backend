@@ -18,11 +18,20 @@ const (
 
 // Middleware guards routes using access tokens.
 type Middleware struct {
-	tokens *TokenManager
+	tokens       *TokenManager
+	statusLoader AccountStatusLoader
+}
+
+type AccountStatusLoader interface {
+	IsActive(ctx context.Context, userID int64) (bool, error)
 }
 
 func NewMiddleware(tokens *TokenManager) *Middleware {
 	return &Middleware{tokens: tokens}
+}
+
+func (m *Middleware) SetAccountStatusLoader(loader AccountStatusLoader) {
+	m.statusLoader = loader
 }
 
 // RequireAuth rejects requests without a valid Bearer access token and stores
@@ -43,6 +52,17 @@ func (m *Middleware) RequireAuth(next http.Handler) http.Handler {
 		if err != nil {
 			httpx.Error(w, http.StatusUnauthorized, "invalid token subject")
 			return
+		}
+		if m.statusLoader != nil {
+			active, err := m.statusLoader.IsActive(r.Context(), userID)
+			if err != nil {
+				httpx.Error(w, http.StatusInternalServerError, "could not verify account status")
+				return
+			}
+			if !active {
+				httpx.Error(w, http.StatusForbidden, "account is inactive")
+				return
+			}
 		}
 		ctx := context.WithValue(r.Context(), ctxUserID, userID)
 		ctx = context.WithValue(ctx, ctxRole, claims.Role)

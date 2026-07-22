@@ -8,7 +8,14 @@ import (
 
 // RegisterRoutes mounts event-planning routes. Catalog reads are public; client
 // request routes require a logged-in customer; management requires an admin.
-func RegisterRoutes(r chi.Router, h *Handler, requireAuth, requireAdmin func(http.Handler) http.Handler) {
+type AdminGuards struct {
+	CategoriesRead, CategoriesManage func(http.Handler) http.Handler
+	ServicesRead, ServicesManage     func(http.Handler) http.Handler
+	ArtistsRead, ArtistsManage       func(http.Handler) http.Handler
+	RequestsRead, RequestsManage     func(http.Handler) http.Handler
+}
+
+func RegisterRoutes(r chi.Router, h *Handler, requireAuth func(http.Handler) http.Handler, g AdminGuards) {
 	// public (client) catalog
 	r.Get("/event-service-categories", h.ListCategoriesPublic)
 	r.Get("/event-services", h.ListServicesPublic)
@@ -28,30 +35,28 @@ func RegisterRoutes(r chi.Router, h *Handler, requireAuth, requireAdmin func(htt
 
 	// admin
 	r.Group(func(r chi.Router) {
-		r.Use(requireAdmin)
+		r.With(g.CategoriesRead).Get("/admin/event-service-categories", h.ListCategoriesAdmin)
+		r.With(g.CategoriesManage).Post("/admin/event-service-categories", h.CreateCategory)
+		r.With(g.CategoriesManage).Put("/admin/event-service-categories/{id}", h.UpdateCategory)
+		r.With(g.CategoriesManage).Delete("/admin/event-service-categories/{id}", h.DeleteCategory)
 
-		r.Get("/admin/event-service-categories", h.ListCategoriesAdmin)
-		r.Post("/admin/event-service-categories", h.CreateCategory)
-		r.Put("/admin/event-service-categories/{id}", h.UpdateCategory)
-		r.Delete("/admin/event-service-categories/{id}", h.DeleteCategory)
+		r.With(g.ServicesRead).Get("/admin/event-services", h.ListServicesAdmin)
+		r.With(g.ServicesRead).Get("/admin/event-services/{id}", h.GetServiceAdmin)
+		r.With(g.ServicesManage).Post("/admin/event-services", h.CreateService)
+		r.With(g.ServicesManage).Put("/admin/event-services/{id}", h.UpdateService)
+		r.With(g.ServicesManage).Delete("/admin/event-services/{id}", h.DeleteService)
 
-		r.Get("/admin/event-services", h.ListServicesAdmin)
-		r.Get("/admin/event-services/{id}", h.GetServiceAdmin)
-		r.Post("/admin/event-services", h.CreateService)
-		r.Put("/admin/event-services/{id}", h.UpdateService)
-		r.Delete("/admin/event-services/{id}", h.DeleteService)
+		r.With(g.ArtistsRead).Get("/admin/artists", h.ListArtistsAdmin)
+		r.With(g.ArtistsRead).Get("/admin/artists/{id}", h.GetArtistAdmin)
+		r.With(g.ArtistsManage).Post("/admin/artists", h.CreateArtist)
+		r.With(g.ArtistsManage).Put("/admin/artists/{id}", h.UpdateArtist)
+		r.With(g.ArtistsManage).Delete("/admin/artists/{id}", h.DeleteArtist)
 
-		r.Get("/admin/artists", h.ListArtistsAdmin)
-		r.Get("/admin/artists/{id}", h.GetArtistAdmin)
-		r.Post("/admin/artists", h.CreateArtist)
-		r.Put("/admin/artists/{id}", h.UpdateArtist)
-		r.Delete("/admin/artists/{id}", h.DeleteArtist)
-
-		r.Get("/admin/event-requests", h.ListRequestsAdmin)
-		r.Post("/admin/event-requests", h.CreateRequestAdmin)
-		r.Get("/admin/event-requests/{id}", h.GetRequestAdmin)
-		r.Patch("/admin/event-requests/{id}/status", h.UpdateStatus)
-		r.Patch("/admin/event-requests/{id}/quote", h.SetQuote)
+		r.With(g.RequestsRead).Get("/admin/event-requests", h.ListRequestsAdmin)
+		r.With(g.RequestsManage).Post("/admin/event-requests", h.CreateRequestAdmin)
+		r.With(g.RequestsRead).Get("/admin/event-requests/{id}", h.GetRequestAdmin)
+		r.With(g.RequestsManage).Patch("/admin/event-requests/{id}/status", h.UpdateStatus)
+		r.With(g.RequestsManage).Patch("/admin/event-requests/{id}/quote", h.SetQuote)
 		// Payment is recorded via the payments module (POST /admin/payments,
 		// payable_type 'event'), which flips payment_status in one audited tx.
 	})

@@ -5,9 +5,12 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
+
+	"github.com/trimo/backend/internal/authz"
 )
 
 // heartbeat keeps the connection (and any intermediary proxy) from treating an
@@ -57,6 +60,9 @@ func (h *Hub) stream(w http.ResponseWriter, r *http.Request) {
 		case <-h.Done(): // server shutting down
 			return
 		case evt := <-sub.ch:
+			if !eventAllowed(r, evt) {
+				continue
+			}
 			data, err := json.Marshal(evt)
 			if err != nil {
 				continue
@@ -76,4 +82,30 @@ func (h *Hub) stream(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+}
+
+func eventAllowed(r *http.Request, evt Event) bool {
+	access, ok := authz.FromContext(r.Context())
+	if !ok {
+		return false
+	}
+	if access.IsSuper {
+		return true
+	}
+	var keys []string
+	switch {
+	case strings.HasPrefix(evt.Type, "order."):
+		keys = []string{authz.PermOrders, "orders.orders", "orders.orders.manage"}
+	case strings.HasPrefix(evt.Type, "booking."):
+		keys = []string{authz.PermMobility, "mobility.bookings", "mobility.bookings.manage"}
+	case strings.HasPrefix(evt.Type, "event."):
+		keys = []string{authz.PermEvents, "events.requests", "events.requests.manage"}
+	case strings.HasPrefix(evt.Type, "healthcare."):
+		keys = []string{authz.PermHealthcare, "healthcare.requests", "healthcare.requests.manage"}
+	case strings.HasPrefix(evt.Type, "payment."):
+		keys = []string{authz.PermPayments, "payments.payments", "payments.payments.manage"}
+	default:
+		keys = []string{authz.PermDashboard, "dashboard.overview", "dashboard.overview.manage"}
+	}
+	return access.Permissions.HasAny(keys...)
 }

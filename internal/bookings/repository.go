@@ -44,6 +44,22 @@ func (r *Repository) InTx(ctx context.Context, fn func(tx *sqlx.Tx) error) error
 	return tx.Commit()
 }
 
+func (r *Repository) ListBookingCarOptions(ctx context.Context) ([]BookingCarOption, error) {
+	items := []BookingCarOption{}
+	err := r.db.SelectContext(ctx, &items, `
+		SELECT c.id,c.name,cc.name AS category_name,c.status
+		FROM cars c JOIN car_categories cc ON cc.id=c.category_id
+		ORDER BY c.name`)
+	return items, err
+}
+
+func (r *Repository) ListBookingDriverOptions(ctx context.Context) ([]BookingDriverOption, error) {
+	items := []BookingDriverOption{}
+	err := r.db.SelectContext(ctx, &items, `
+		SELECT id,full_name,status FROM drivers ORDER BY full_name`)
+	return items, err
+}
+
 // --- car / driver lookups ---
 
 // LockCar reads a car FOR UPDATE, serializing concurrent bookings for that car.

@@ -8,6 +8,27 @@ import (
 	"github.com/trimo/backend/internal/httpx"
 )
 
+type accessContextKey string
+
+const currentAccessKey accessContextKey = "authz.current_access"
+
+// CurrentAccess is attached by RequirePermission after it resolves a user. It
+// lets downstream handlers (notably the SSE stream) filter records without a
+// second authorization query.
+type CurrentAccess struct {
+	IsSuper     bool
+	Permissions PermissionSet
+}
+
+func FromContext(ctx context.Context) (CurrentAccess, bool) {
+	access, ok := ctx.Value(currentAccessKey).(CurrentAccess)
+	return access, ok
+}
+
+func WithCurrentAccess(ctx context.Context, access CurrentAccess) context.Context {
+	return context.WithValue(ctx, currentAccessKey, access)
+}
+
 // PermissionLoader resolves an authenticated user's effective access. It is
 // implemented by the adminusers service (a single indexed query per request;
 // admin traffic is low and this keeps role changes effective immediately).
@@ -38,7 +59,39 @@ func RequirePermission(loader PermissionLoader, keys ...string) func(http.Handle
 				httpx.Error(w, http.StatusForbidden, "you do not have access to this section")
 				return
 			}
-			next.ServeHTTP(w, r)
+			ctx := WithCurrentAccess(r.Context(), CurrentAccess{IsSuper: isSuper, Permissions: perms})
+			next.ServeHTTP(w, r.WithContext(ctx))
+		})
+	}
+}
+
+// RequireCapability is the submenu/action variant of RequirePermission.
+func RequireCapability(loader PermissionLoader, capability string, manage bool) func(http.Handler) http.Handler {
+	return RequirePermission(loader, RequiredCapabilityKeys(capability, manage)...)
+}
+
+// RequireSuperAdmin protects authorization administration. Unlike a broad
+// permission, this bypass cannot be delegated through a department, position,
+// legacy role, or temporary assignment.
+func RequireSuperAdmin(loader PermissionLoader) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			userID, ok := auth.UserIDFromContext(r.Context())
+			if !ok {
+				httpx.Error(w, http.StatusUnauthorized, "authentication required")
+				return
+			}
+			isSuper, perms, err := loader.Load(r.Context(), userID)
+			if err != nil {
+				httpx.Error(w, http.StatusInternalServerError, "internal server error")
+				return
+			}
+			if !isSuper {
+				httpx.Error(w, http.StatusForbidden, "super-admin access required")
+				return
+			}
+			ctx := WithCurrentAccess(r.Context(), CurrentAccess{IsSuper: true, Permissions: perms})
+			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
 }

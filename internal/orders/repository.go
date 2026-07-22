@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/jmoiron/sqlx"
+
+	"github.com/trimo/backend/internal/stock"
 )
 
 var (
@@ -129,8 +131,10 @@ func (r *Repository) GetVariantForCart(ctx context.Context, variantID int64) (*v
 	var vs variantStock
 	err := r.db.GetContext(ctx, &vs,
 		`SELECT pv.id, pv.sku, pv.label, pv.price, pv.stock_quantity, pv.is_active,
-		        pv.product_id, p.name AS product_name
-		 FROM product_variants pv JOIN products p ON p.id = pv.product_id
+		        pv.product_id, p.name AS product_name, pc.template_key
+		 FROM product_variants pv
+		   JOIN products p ON p.id = pv.product_id
+		   JOIN product_categories pc ON pc.id = p.category_id
 		 WHERE pv.id = ?`, variantID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrVariantMissing
@@ -178,8 +182,10 @@ func (r *Repository) LockVariant(ctx context.Context, tx *sqlx.Tx, variantID int
 	var vs variantStock
 	err := sqlx.GetContext(ctx, tx, &vs,
 		`SELECT pv.id, pv.sku, pv.label, pv.price, pv.stock_quantity, pv.is_active,
-		        pv.product_id, p.name AS product_name
-		 FROM product_variants pv JOIN products p ON p.id = pv.product_id
+		        pv.product_id, p.name AS product_name, pc.template_key
+		 FROM product_variants pv
+		   JOIN products p ON p.id = pv.product_id
+		   JOIN product_categories pc ON pc.id = p.category_id
 		 WHERE pv.id = ? FOR UPDATE`, variantID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrVariantMissing
@@ -194,6 +200,27 @@ func (r *Repository) AdjustStock(ctx context.Context, tx *sqlx.Tx, variantID int
 	_, err := tx.ExecContext(ctx,
 		`UPDATE product_variants SET stock_quantity = stock_quantity + ? WHERE id = ?`, delta, variantID)
 	return err
+}
+
+// ReleaseStockTx returns a cancelled or expired line's units to the shelf and
+// appends the ledger entry. It re-locks the variant to read the resulting level
+// exactly, because unlike checkout the caller has not already locked the row.
+func (r *Repository) ReleaseStockTx(ctx context.Context, tx *sqlx.Tx, variantID int64, quantity int, department string, orderID int64) error {
+	if quantity <= 0 {
+		return nil
+	}
+	var current int
+	if err := sqlx.GetContext(ctx, tx, &current,
+		`SELECT stock_quantity FROM product_variants WHERE id = ? FOR UPDATE`, variantID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil // variant deleted since the order was placed; nothing to return
+		}
+		return err
+	}
+	if err := r.AdjustStock(ctx, tx, variantID, quantity); err != nil {
+		return err
+	}
+	return stock.RecordTx(ctx, tx, stock.OrderMovement(variantID, department, quantity, current+quantity, orderID))
 }
 
 func (r *Repository) InsertOrder(ctx context.Context, tx *sqlx.Tx, o *Order) (int64, error) {
@@ -217,9 +244,9 @@ func (r *Repository) InsertOrder(ctx context.Context, tx *sqlx.Tx, o *Order) (in
 
 func (r *Repository) InsertOrderItem(ctx context.Context, tx *sqlx.Tx, it *OrderItem) error {
 	_, err := tx.ExecContext(ctx,
-		`INSERT INTO order_items (order_id, product_variant_id, product_name, variant_label, sku, unit_price, quantity, line_total)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		it.OrderID, it.ProductVariantID, it.ProductName, it.VariantLabel, it.SKU, it.UnitPrice, it.Quantity, it.LineTotal)
+		`INSERT INTO order_items (order_id, product_variant_id, department, product_name, variant_label, sku, unit_price, quantity, line_total)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		it.OrderID, it.ProductVariantID, it.Department, it.ProductName, it.VariantLabel, it.SKU, it.UnitPrice, it.Quantity, it.LineTotal)
 	return err
 }
 
@@ -266,9 +293,19 @@ const orderCols = `id, user_id,
 	subtotal, shipping_fee, total, reserved_until,
 	ship_recipient_name, ship_phone, ship_line1, ship_line2, ship_city, ship_region, ship_country, ship_postal_code,
 	ship_latitude, ship_longitude, ship_location_reference,
-	note, placed_at, paid_at, created_at, updated_at`
+	note, placed_at, paid_at, created_at, updated_at,
+	(SELECT GROUP_CONCAT(DISTINCT oi.department ORDER BY oi.department SEPARATOR ',')
+	   FROM order_items oi WHERE oi.order_id = orders.id) AS departments`
 
-const orderItemCols = `id, order_id, product_variant_id, product_name, variant_label, sku, unit_price, quantity, line_total, created_at`
+const orderItemCols = `id, order_id, product_variant_id, department, product_name, variant_label, sku, unit_price, quantity, line_total, created_at`
+
+// departmentShareCols add the caller's slice of each order. They carry their own
+// bind parameters, so they must be prepended to the argument list.
+const departmentShareCols = `,
+	(SELECT COALESCE(SUM(oi.line_total), 0) FROM order_items oi
+	   WHERE oi.order_id = orders.id AND oi.department = ?) AS department_subtotal,
+	(SELECT COALESCE(SUM(oi.quantity), 0) FROM order_items oi
+	   WHERE oi.order_id = orders.id AND oi.department = ?) AS department_quantity`
 
 func (r *Repository) ListOrders(ctx context.Context, f OrderFilter) ([]Order, int, error) {
 	var where []string
@@ -289,6 +326,16 @@ func (r *Repository) ListOrders(ctx context.Context, f OrderFilter) ([]Order, in
 		where = append(where, "fulfillment_type = ?")
 		args = append(args, f.FulfillmentType)
 	}
+
+	cols := orderCols
+	var selectArgs []any
+	if f.Department != "" {
+		where = append(where, "EXISTS (SELECT 1 FROM order_items oi WHERE oi.order_id = orders.id AND oi.department = ?)")
+		args = append(args, f.Department)
+		cols += departmentShareCols
+		selectArgs = append(selectArgs, f.Department, f.Department)
+	}
+
 	clause := ""
 	if len(where) > 0 {
 		clause = " WHERE " + strings.Join(where, " AND ")
@@ -299,10 +346,10 @@ func (r *Repository) ListOrders(ctx context.Context, f OrderFilter) ([]Order, in
 		return nil, 0, err
 	}
 
-	listArgs := append(append([]any{}, args...), f.Limit, f.Offset)
+	listArgs := append(append(append([]any{}, selectArgs...), args...), f.Limit, f.Offset)
 	out := []Order{}
 	err := r.db.SelectContext(ctx, &out,
-		`SELECT `+orderCols+` FROM orders`+clause+` ORDER BY created_at DESC LIMIT ? OFFSET ?`, listArgs...)
+		`SELECT `+cols+` FROM orders`+clause+` ORDER BY created_at DESC LIMIT ? OFFSET ?`, listArgs...)
 	if err != nil {
 		return nil, 0, err
 	}

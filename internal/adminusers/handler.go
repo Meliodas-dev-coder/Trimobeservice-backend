@@ -175,7 +175,7 @@ func writeErr(w http.ResponseWriter, err error) {
 		httpx.ValidationError(w, vp.Fields)
 	case errors.Is(err, ErrRoleNotFound), errors.Is(err, ErrUserNotFound):
 		httpx.Error(w, http.StatusNotFound, err.Error())
-	case errors.Is(err, ErrRoleNameTaken), errors.Is(err, ErrEmailTaken), errors.Is(err, ErrSystemRole):
+	case errors.Is(err, ErrRoleNameTaken), errors.Is(err, ErrEmailTaken), errors.Is(err, ErrSystemRole), errors.Is(err, ErrEmployeeStatus):
 		httpx.Error(w, http.StatusConflict, err.Error())
 	case errors.Is(err, ErrSuperAdminProtected):
 		httpx.Error(w, http.StatusForbidden, err.Error())
