@@ -168,6 +168,19 @@ var productTemplates = []ProductTemplate{
 		},
 	},
 	{
+		Key:        "screen_protector",
+		Label:      "Screen protector",
+		Department: DepartmentTech,
+		// A screen protector has no colour: what distinguishes one SKU from the
+		// next is its grade (Simple, 2.1D, Top Glass, Privacy, Privacy Ceramic),
+		// and that is also what sets the price. So the grade is the variant axis,
+		// and it is filterable — "show me the Privacy ones" is a real request.
+		ProductFields: []TemplateField{},
+		VariantAxes: []TemplateField{
+			{Key: "protection_type", Label: "Protection", Type: FieldText, Filterable: true},
+		},
+	},
+	{
 		Key:        "clothing",
 		Label:      "Clothing",
 		Department: DepartmentFashion,
